@@ -78,6 +78,11 @@ All settings come from environment variables or `.env` (see `.env.example`).
 | `SIGNAL_MIN_CONFIDENCE` | `60` | Confidence needed before a setup is proposed. |
 | `SIGNAL_SL_ATR_MULTIPLE` / `SIGNAL_REWARD_RATIO` | `1.5` / `2.0` | Stop distance in ATR, and the reward-to-risk target. |
 | `SIGNAL_MIN_EFFICIENCY` | `0.25` | Efficiency ratio below which the market reads as ranging. |
+| `BOT_ENABLED` | `false` | Whether `/bot/start` may run the loop at all. |
+| `BOT_DRY_RUN` | `true` | A running bot records decisions and sends nothing until this is false. |
+| `BOT_MODE` | `bar` | `bar` decides once per closed candle; `interval` every poll. |
+| `BOT_POLL_SECONDS` | `15` | How often the loop looks. |
+| `BOT_MAX_TRADES_PER_DAY` | `5` | Hard ceiling on the bot's trades per day. |
 
 ## Endpoints
 
@@ -102,6 +107,22 @@ Every endpoint except `GET /health` requires the API key, sent either as
 | `GET` | `/api/v1/signal?symbol=XAUUSD` | Run the analysis pipeline. Read-only. |
 | `GET` | `/api/v1/risk` | Risk limits, today's P/L and the remaining loss budget. |
 | `GET` | `/api/v1/history/deals` | Closed deals (defaults to the last 7 days). |
+
+The same operations are also served on a compact, verb-shaped surface. These are
+aliases over the identical service layer — same risk policy, same pre-flight:
+
+| Method | Path | Same as |
+| --- | --- | --- |
+| `GET` | `/account` | `/api/v1/account` |
+| `GET` | `/market/{symbol}` | symbol spec + quote + candles in one response |
+| `GET` | `/positions` | `/api/v1/positions` |
+| `GET` | `/orders` | `/api/v1/orders` |
+| `POST` | `/trade/buy` | `/api/v1/orders` with `side: buy` |
+| `POST` | `/trade/sell` | `/api/v1/orders` with `side: sell` |
+| `POST` | `/position/close` | `/api/v1/positions/{ticket}/close`, ticket in the body |
+| `POST` | `/bot/start` | start the trading loop |
+| `POST` | `/bot/stop` | stop it |
+| `GET` | `/bot/status` | what it is doing and has done |
 
 ### Candles
 
@@ -266,6 +287,38 @@ it.
 `POST /orders` to act on it, which re-runs the whole policy. The confidence
 score is a weighted blend, not a learned model; swap `score_confidence` in
 `app/analysis/signal.py` if you want a real one behind that slot.
+
+## The bot
+
+`POST /bot/start` runs the analysis pipeline on a cadence and hands any proposal
+to the same `place_order` path a human uses:
+
+    signal pipeline -> risk manager -> order_check() -> order_send() -> MT5
+
+It owns no trading logic of its own — it decides *when* to look, not what is a
+good trade — so every order it sends passes the identical risk policy,
+pre-flight and demo guard.
+
+Two independent gates, both safe by default:
+
+| Gate | Default | Effect |
+| --- | --- | --- |
+| `BOT_ENABLED` | `false` | `/bot/start` refuses with `403 bot_not_allowed`. |
+| `BOT_DRY_RUN` | `true` | A running bot records the trades it would have taken and sends nothing. |
+
+In `bar` mode (the default) the loop decides once per closed candle, and
+deliberately skips the bar that was already forming when it started — the first
+decision comes from a candle that closed under its watch. `interval` mode
+decides on every poll instead.
+
+`POST /bot/stop` is idempotent and **leaves open positions exactly as they
+are**: it stops the bot opening more, it does not close anything. The loop is
+also stopped during application shutdown, so a terminal never goes away
+mid-order.
+
+`GET /bot/status` reports what it is watching, its last decision and why, the
+trades it took (or would have taken), and the tail of its activity — including
+the setups the risk manager refused.
 
 ## Safety model
 

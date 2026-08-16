@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings, get_settings
 from .errors import BridgeError, bridge_error_handler
+from .bot.engine import TradingBot
 from .mt5.session import MT5Session
-from .routers import health, market, trading
+from .routers import bot as bot_router
+from .routers import health, market, simple, trading
 
 APP_NAME = "mt5-fastapi-bridge"
 APP_VERSION = "1.0.0"
@@ -38,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session = MT5Session(settings)
         app.state.mt5_session = session
         app.state.settings = settings
+        app.state.bot = TradingBot(session, settings)
         if not settings.tls_enabled:
             logger.warning(
                 "TLS is not configured (SSL_CERTFILE / SSL_KEYFILE). Serve this API "
@@ -47,6 +50,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            # Stop the loop before the terminal goes away, so a shutdown can
+            # never leave a bot mid-order against a closing session.
+            await app.state.bot.stop()
             await session.shutdown()
 
     app = FastAPI(
@@ -70,6 +76,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(market.router)
     app.include_router(trading.router)
+    app.include_router(simple.router)
+    app.include_router(bot_router.router)
     return app
 
 

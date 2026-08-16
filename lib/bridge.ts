@@ -12,6 +12,7 @@ import { Agent, type Dispatcher } from "undici";
 
 import type {
   Account,
+  BotStatus,
   Candle,
   OrderRequestBody,
   Position,
@@ -276,6 +277,21 @@ export function getCandles(params: {
 /** GET /positions */
 export function getPositions(): Promise<Position[]> {
   return request<Position[]>(apiPath("/positions"));
+}
+
+/** GET /bot/status */
+export function getBotStatus(): Promise<BotStatus> {
+  return request<BotStatus>("/bot/status");
+}
+
+/** POST /bot/start - refused by the bridge unless BOT_ENABLED=true. */
+export function startBot(body: { symbol?: string; timeframe?: string }): Promise<BotStatus> {
+  return request<BotStatus>("/bot/start", { method: "POST", body });
+}
+
+/** POST /bot/stop - idempotent; leaves open positions untouched. */
+export function stopBot(): Promise<BotStatus> {
+  return request<BotStatus>("/bot/stop", { method: "POST", body: {} });
 }
 
 /** GET /signal - the analysis pipeline's verdict for one symbol. */

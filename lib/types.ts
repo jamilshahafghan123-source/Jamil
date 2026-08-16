@@ -155,6 +155,48 @@ export type SignalResult = {
   risk?: { passed: boolean; rule?: string; [key: string]: unknown };
 };
 
+export type BotTrade = {
+  at: string;
+  bar: string;
+  symbol: string;
+  side: OrderSide;
+  volume: number;
+  sl: number;
+  tp: number;
+  confidence: number;
+  executed: boolean;
+  detail: string;
+  order: number | null;
+  deal: number | null;
+};
+
+export type BotEvent = { at: string; kind: string; message: string };
+
+export type BotStatus = {
+  running: boolean;
+  enabled: boolean;
+  dry_run: boolean;
+  mode: string;
+  poll_seconds: number;
+  symbol: string | null;
+  timeframe: string | null;
+  started_at: string | null;
+  stopped_at: string | null;
+  last_evaluated_at: string | null;
+  last_bar: string | null;
+  last_decision: {
+    at: string;
+    bar: string;
+    decision: string;
+    confidence: number;
+    reason: string;
+  } | null;
+  trades_today: number;
+  max_trades_per_day: number;
+  trades: BotTrade[];
+  events: BotEvent[];
+};
+
 /** A setup loaded from the signal panel into the order ticket. */
 export type TicketPreset = {
   side: OrderSide;

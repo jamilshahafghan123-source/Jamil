@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 
@@ -23,7 +24,10 @@ class BridgeError(Exception):
             content={
                 "error": self.error_code,
                 "message": self.message,
-                "details": self.details,
+                # Details carry whatever the raising code had to hand — MT5
+                # structures, timestamps, floats — so encode rather than trust
+                # it to be JSON-native.
+                "details": jsonable_encoder(self.details),
             },
         )
 

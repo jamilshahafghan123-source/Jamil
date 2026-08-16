@@ -81,6 +81,24 @@ class Settings(BaseSettings):
     signal_max_volatility_percentile: float = Field(default=90.0, ge=0, le=100)
     # Kaufman efficiency ratio below this means "ranging" - no trend setup.
     signal_min_efficiency: float = Field(default=0.25, ge=0, le=1)
+
+    # --- Autonomous bot -------------------------------------------------------
+    # Two independent gates. BOT_ENABLED decides whether /bot/start is allowed to
+    # run at all; BOT_DRY_RUN decides whether a running bot may actually send
+    # orders. Both ship on the safe side: a started bot records the decisions it
+    # would have taken and sends nothing until BOT_DRY_RUN=false.
+    bot_enabled: bool = False
+    bot_dry_run: bool = True
+    # Empty falls back to the first entry in RISK_ALLOWED_SYMBOLS.
+    bot_symbol: str = ""
+    # Empty falls back to SIGNAL_TIMEFRAME.
+    bot_timeframe: str = ""
+    # "bar" evaluates once per closed candle; "interval" every poll.
+    bot_mode: str = "bar"
+    bot_poll_seconds: float = Field(default=15.0, ge=1.0)
+    # A hard ceiling on how much the bot can do in one day, independent of the
+    # risk policy's loss limits.
+    bot_max_trades_per_day: int = Field(default=5, ge=0)
     default_deviation: int = Field(default=20, ge=0)
     default_magic: int = 20260816
     order_comment_prefix: str = "fastapi-bridge"

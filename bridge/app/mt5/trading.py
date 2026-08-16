@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from types import ModuleType
@@ -86,6 +87,13 @@ POSITION_SIDE = {0: "buy", 1: "sell"}
 
 SYMBOL_FILLING_FOK = 1
 SYMBOL_FILLING_IOC = 2
+
+# One order at a time, process-wide. The risk policy counts open positions and
+# the day's losses to decide, so two orders evaluated concurrently could both
+# read "one slot left" and both take it. Holding this across evaluate-and-send
+# makes the decision and the order atomic with respect to each other, whether
+# they come from the bot or from two HTTP requests.
+_order_gate = asyncio.Lock()
 
 
 def describe_retcode(retcode: int) -> str:
@@ -203,6 +211,13 @@ async def place_order(
     session: MT5Session, settings: Settings, req: Any
 ) -> dict[str, Any]:
     """Send a market or pending order. ``req`` is an OrderRequest schema object."""
+    async with _order_gate:
+        return await _place_order_locked(session, settings, req)
+
+
+async def _place_order_locked(
+    session: MT5Session, settings: Settings, req: Any
+) -> dict[str, Any]:
     symbol_info = await ensure_symbol(session, req.symbol)
     volume = normalize_volume(req.volume, symbol_info)
     await assert_trading_allowed(session, settings, volume=volume)

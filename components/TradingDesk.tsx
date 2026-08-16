@@ -7,6 +7,7 @@ import { number, price, timeAgo } from "@/lib/format";
 import {
   TIMEFRAMES,
   type Account,
+  type BotStatus,
   type BridgeStatus,
   type CandlesPayload,
   type Position,
@@ -18,6 +19,7 @@ import {
   type Timeframe,
 } from "@/lib/types";
 import AccountPanel from "./AccountPanel";
+import BotPanel from "./BotPanel";
 import CandleChart from "./CandleChart";
 import ConnectionBadge, { ExecutionBadge } from "./ConnectionBadge";
 import OrderTicket from "./OrderTicket";
@@ -34,6 +36,7 @@ const POLL = {
   candles: 30_000,
   risk: 10_000,
   signal: 30_000,
+  bot: 5_000,
 };
 
 const DEFAULT_SYMBOL = "EURUSD";
@@ -53,6 +56,7 @@ export default function TradingDesk() {
     enabled: online,
   });
   const risk = usePolling<RiskState>("/api/mt5/risk", POLL.risk, { enabled: online });
+  const bot = usePolling<BotStatus>("/api/mt5/bot", POLL.bot, { enabled: online });
   const signal = usePolling<SignalResult>(
     `/api/mt5/signal?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`,
     POLL.signal,
@@ -102,6 +106,7 @@ export default function TradingDesk() {
     account.refresh();
     positions.refresh();
     risk.refresh();
+    bot.refresh();
   };
 
   const spread =
@@ -240,6 +245,7 @@ export default function TradingDesk() {
         <div className="stack">
           <AccountPanel state={account} online={online} />
           <RiskPanel state={risk} online={online} />
+          <BotPanel state={bot} online={online} onChanged={refreshTrading} />
           <SignalPanel
             state={signal}
             online={online}

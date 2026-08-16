@@ -59,6 +59,8 @@ The UI only ever calls these. Each one proxies to the bridge and returns
 | `GET /api/mt5/positions` | `GET /positions` | Real open positions |
 | `GET /api/mt5/risk` | `GET /risk` | Risk limits, today's P/L, remaining loss budget |
 | `GET /api/mt5/signal` | `GET /signal` | Analysis pipeline verdict for a symbol |
+| `GET /api/mt5/bot` | `GET /bot/status` | What the trading loop is doing |
+| `POST /api/mt5/bot` | `POST /bot/start` \| `/bot/stop` | Start or stop the loop |
 | `POST /api/mt5/orders` | `POST /orders` | Market / limit / stop, with volume, SL and TP |
 | `POST /api/mt5/positions/{ticket}/close` | `POST /positions/{ticket}/close` | Close a real position |
 
@@ -125,6 +127,24 @@ button, and the risk policy is applied again server-side at that point.
 Orders also pass `order_check()` before `order_send()`, so the terminal
 validates margin, stops and volume before anything reaches the market.
 
+## The bot
+
+The Bot panel starts and stops the bridge's autonomous loop, which runs the same
+analysis pipeline on a cadence and sends any proposal through the same risk
+policy and pre-flight as a manual order. It has three layers of brake:
+
+1. `BOT_ENABLED` on the bridge — false by default; `/bot/start` refuses outright.
+2. `BOT_DRY_RUN` on the bridge — true by default; a running bot records the
+   trades it would have taken and sends nothing.
+3. `MT5_ALLOW_LIVE_ORDERS` on this server — starting the loop is an execution
+   action, so it needs the same flag as placing an order. **Stopping is always
+   allowed**: a kill switch that can be disabled is not a kill switch.
+
+The panel shows what it is watching, its last decision and why, and the tail of
+its activity — including setups the risk manager refused. Stopping leaves open
+positions exactly as they are; it stops the bot opening more, it does not close
+anything.
+
 ## Connection states
 
 The header badge is the single source of truth, and never shows green unless the
@@ -162,5 +182,5 @@ application itself has no mock path.
 
 ```bash
 npm run typecheck && npm run build     # UI
-cd bridge && pytest                    # bridge (92 tests)
+cd bridge && pytest                    # bridge (121 tests)
 ```
