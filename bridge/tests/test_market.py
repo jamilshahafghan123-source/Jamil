@@ -39,6 +39,18 @@ def test_second_configured_key_works(client):
     assert response.status_code == 200
 
 
+def test_bearer_token_is_accepted(client):
+    response = client.get(
+        "/api/v1/account", headers={"Authorization": "Bearer test-key-one"}
+    )
+    assert response.status_code == 200
+
+
+def test_wrong_bearer_token_is_rejected(client):
+    response = client.get("/api/v1/account", headers={"Authorization": "Bearer nope"})
+    assert response.status_code == 403
+
+
 def test_account_snapshot(client):
     body = client.get("/api/v1/account", headers=AUTH).json()
     assert body["login"] == 5031234
@@ -127,10 +139,17 @@ def test_symbols_search_and_detail(client):
 
 def test_hidden_symbol_gets_selected_into_market_watch(client, mt5):
     assert mt5.state.symbols["GBPUSD"].visible is False
-    response = client.get("/api/v1/ticks/GBPUSD", headers=AUTH)
+    response = client.get("/api/v1/tick/GBPUSD", headers=AUTH)
     assert response.status_code == 200
     assert response.json()["bid"] == 1.26400
     assert mt5.state.symbols["GBPUSD"].visible is True
+
+
+def test_tick_path_alias(client):
+    singular = client.get("/api/v1/tick/EURUSD", headers=AUTH)
+    plural = client.get("/api/v1/ticks/EURUSD", headers=AUTH)
+    assert singular.status_code == plural.status_code == 200
+    assert singular.json()["ask"] == plural.json()["ask"] == 1.08508
 
 
 def test_terminal_failure_surfaces_as_503(client, mt5):

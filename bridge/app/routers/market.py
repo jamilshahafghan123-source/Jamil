@@ -46,7 +46,8 @@ async def symbol_detail(
     return await market.ensure_symbol(session, symbol)
 
 
-@router.get("/ticks/{symbol}", response_model=TickResponse, summary="Latest tick")
+@router.get("/tick/{symbol}", response_model=TickResponse, summary="Latest tick")
+@router.get("/ticks/{symbol}", response_model=TickResponse, include_in_schema=False)
 async def tick(
     symbol: str,
     session: MT5Session = Depends(get_session),
