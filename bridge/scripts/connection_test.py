@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.analysis import signal as signal_pipeline  # noqa: E402
-from app.config import Settings, get_settings  # noqa: E402
+from app.config import Settings  # noqa: E402
 from app.mt5 import market  # noqa: E402
 from app.mt5.session import MT5Session, import_mt5  # noqa: E402
 
@@ -78,6 +78,12 @@ def describe_config(settings: Settings, report: Report) -> None:
         return
 
     print(f"        .env found at {env_file}")
+    try:
+        import MetaTrader5
+
+        print(f"        MetaTrader5 package {getattr(MetaTrader5, '__version__', '?')}")
+    except ImportError:
+        print("        MetaTrader5 package NOT INSTALLED")
     print(f"        MT5_LOGIN            = {settings.mt5_login}")
     print(f"        MT5_SERVER           = {settings.mt5_server}")
     print(f"        MT5_PASSWORD         = {'set' if settings.mt5_password else 'NOT SET'}"
@@ -271,11 +277,15 @@ async def main() -> int:
     args = parser.parse_args()
 
     report = Report()
-    settings = get_settings()
+    # Load .env by absolute path. pydantic-settings resolves a relative env_file
+    # against the working directory, so running this from anywhere but bridge/
+    # would silently load no credentials while the file sat right there.
+    settings = Settings(_env_file=ROOT / ".env")
 
     print("=" * 78)
     print("MT5 DEMO CONNECTION TEST — read-only, places no orders")
     print("=" * 78)
+    print(f"python {sys.version.split()[0]}  |  {sys.platform}  |  cwd {Path.cwd()}")
 
     describe_config(settings, report)
 
