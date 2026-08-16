@@ -37,10 +37,10 @@ def main() -> int:
     parser.add_argument("--ssl-keyfile", default=None)
     parser.add_argument(
         "--series",
-        choices=["uptrend", "downtrend", "choppy", "volatility_spike"],
-        default="uptrend",
-        help="Shape of the XAUUSD candles the stub serves, for exercising the "
-        "signal pipeline. Default: uptrend.",
+        choices=["xauusd_bullish", "xauusd_bearish", "xauusd_conflicting", "xauusd_thin"],
+        default="xauusd_bullish",
+        help="Multi-timeframe XAUUSD fixture the stub serves (M15/M5/M1), for "
+        "exercising the strategy engine. Default: xauusd_bullish.",
     )
     args = parser.parse_args()
 
@@ -53,10 +53,10 @@ def main() -> int:
     # something to read; the stub's default ramp only ever rises.
     from tests import series
 
-    rows = getattr(series, args.series)()
-    fake_mt5.state.rates["XAUUSD"] = rows
-    last = rows[-1]["close"]
-    fake_mt5.state.quotes["XAUUSD"] = (last - 0.15, last + 0.15)
+    rates = getattr(series, args.series)()
+    fake_mt5.state.rates["XAUUSD"] = rates
+    last = series.last_close(rates)
+    fake_mt5.state.quotes["XAUUSD"] = (round(last - 0.15, 2), round(last + 0.15, 2))
 
     print("*" * 78)
     print("STUB TERMINAL — quotes and fills are synthetic, not a real MT5 account.")

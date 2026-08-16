@@ -76,7 +76,10 @@ class TradingBot:
         )
 
     def _default_timeframe(self) -> str:
-        return (self._settings.bot_timeframe or self._settings.signal_timeframe).upper()
+        # The strategy is multi-timeframe; this labels what the bot is watching.
+        return (
+            self._settings.bot_timeframe or self._settings.strategy_trend_timeframe
+        ).upper()
 
     @property
     def running(self) -> bool:
@@ -198,14 +201,16 @@ class TradingBot:
             "at": self._last_evaluated_at,
             "bar": bar,
             "decision": result["decision"],
-            "confidence": result["confidence"],
+            "direction": result["direction"],
+            "score": result["signal_score"],
             "reason": (result["reasons"] or [""])[0],
         }
 
         if result["decision"] != "trade" or not result.get("proposal"):
             self._record_event(
                 "no_trade",
-                f"{result['confidence']}% — {(result['reasons'] or ['no setup'])[0]}",
+                f"{result['direction']} score {result['signal_score']} — "
+                f"{(result['reasons'] or ['no setup'])[0]}",
             )
             return
 
@@ -277,7 +282,8 @@ class TradingBot:
             "volume": proposal["volume"],
             "sl": proposal["sl"],
             "tp": proposal["tp"],
-            "confidence": result["confidence"],
+            "direction": result["direction"],
+            "score": result["signal_score"],
             "executed": executed,
             "detail": detail,
             "order": order,
@@ -287,7 +293,7 @@ class TradingBot:
         self._record_event(
             "trade" if executed else "would_trade",
             f"{proposal['side']} {proposal['volume']} {proposal['symbol']} "
-            f"@ {result['confidence']}% — {detail}",
+            f"@ score {result['signal_score']} — {detail}",
         )
 
     def _record_event(self, kind: str, message: str) -> None:

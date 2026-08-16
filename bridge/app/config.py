@@ -68,19 +68,37 @@ class Settings(BaseSettings):
     # Run order_check() before order_send() and refuse on a non-zero retcode.
     preflight_order_check: bool = True
 
-    # --- Signal pipeline ------------------------------------------------------
-    signal_timeframe: str = "M15"
-    signal_candles: int = Field(default=300, ge=60, le=5000)
-    # Minimum confidence (0-100) before the pipeline proposes a trade.
-    signal_min_confidence: float = Field(default=60.0, ge=0, le=100)
-    signal_atr_period: int = Field(default=14, ge=2)
-    # Stop loss distance as a multiple of ATR, and the reward-to-risk target.
-    signal_sl_atr_multiple: float = Field(default=1.5, gt=0)
-    signal_reward_ratio: float = Field(default=2.0, gt=0)
-    # Skip setups while ATR sits above this percentile of its own recent range.
-    signal_max_volatility_percentile: float = Field(default=90.0, ge=0, le=100)
     # Kaufman efficiency ratio below this means "ranging" - no trend setup.
     signal_min_efficiency: float = Field(default=0.25, ge=0, le=1)
+
+    # --- XAUUSD strategy engine -----------------------------------------------
+    # Multi-timeframe: M15 sets the trend, M5 confirms structure and momentum,
+    # M1 supplies the entry trigger. All reads use closed candles.
+    strategy_trend_timeframe: str = "M15"
+    strategy_structure_timeframe: str = "M5"
+    strategy_trigger_timeframe: str = "M1"
+    # EMA200 on the trend timeframe needs 200 closed bars before it says anything.
+    strategy_trend_candles: int = Field(default=300, ge=210)
+    strategy_structure_candles: int = Field(default=180, ge=60)
+    strategy_trigger_candles: int = Field(default=120, ge=60)
+    # 0-100. Below this the engine returns NO_TRADE.
+    strategy_min_score: float = Field(default=65.0, ge=0, le=100)
+    # Stop loss: structure level plus this much ATR of headroom, then clamped
+    # into a sane band so one wild bar cannot produce an absurd stop.
+    strategy_sl_atr_buffer: float = Field(default=0.5, gt=0)
+    strategy_sl_min_atr: float = Field(default=0.8, gt=0)
+    strategy_sl_max_atr: float = Field(default=3.5, gt=0)
+    # Take profits as multiples of the risk distance.
+    strategy_tp1_r: float = Field(default=1.0, gt=0)
+    strategy_tp2_r: float = Field(default=2.0, gt=0)
+    strategy_tp3_r: float = Field(default=3.0, gt=0)
+    # Which target the order proposal carries, since an MT5 order has one TP.
+    strategy_order_tp: str = "tp2"
+    # RSI beyond these is treated as over-extended: no fresh entries into it.
+    strategy_rsi_overbought: float = Field(default=75.0, ge=50, le=100)
+    strategy_rsi_oversold: float = Field(default=25.0, ge=0, le=50)
+    # How far back the trigger timeframe may look for the pullback and reclaim.
+    strategy_trigger_lookback: int = Field(default=8, ge=2)
 
     # --- Autonomous bot -------------------------------------------------------
     # Two independent gates. BOT_ENABLED decides whether /bot/start is allowed to
@@ -91,7 +109,7 @@ class Settings(BaseSettings):
     bot_dry_run: bool = True
     # Empty falls back to the first entry in RISK_ALLOWED_SYMBOLS.
     bot_symbol: str = ""
-    # Empty falls back to SIGNAL_TIMEFRAME.
+    # Empty falls back to STRATEGY_TREND_TIMEFRAME.
     bot_timeframe: str = ""
     # "bar" evaluates once per closed candle; "interval" every poll.
     bot_mode: str = "bar"

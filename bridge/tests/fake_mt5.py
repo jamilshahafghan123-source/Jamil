@@ -218,14 +218,40 @@ def symbol_info_tick(symbol: str) -> Tick | None:
     )
 
 
-def _make_rates(symbol: str, count: int, step_seconds: int, first_time: datetime) -> list[dict]:
+def _injected(symbol: str, timeframe: int | None) -> list[dict] | None:
+    """Rates a test put behind this symbol, per timeframe or for all of them.
+
+    ``state.rates[symbol]`` is either a list (served for every timeframe) or a
+    dict keyed by timeframe constant, so a multi-timeframe strategy can be given
+    a different series on M15, M5 and M1.
+    """
+    override = state.rates.get(symbol)
+    if override is None:
+        return None
+    if isinstance(override, dict):
+        return override.get(timeframe)
+    return override
+
+
+def _make_rates(
+    symbol: str,
+    count: int,
+    step_seconds: int,
+    first_time: datetime,
+    *,
+    timeframe: int | None = None,
+    start_pos: int = 0,
+) -> list[dict]:
     # Real MT5 returns a numpy structured array; rows support row["field"] access,
     # which is all the bridge relies on, so plain dicts stand in fine here.
     # Tests that care about the shape of the series (the analysis pipeline) inject
     # their own bars instead of using the ramp below.
-    override = state.rates.get(symbol)
+    override = _injected(symbol, timeframe)
     if override is not None:
-        return [dict(row) for row in override[-count:]]
+        # start_pos counts back from the most recent bar, so start_pos=1 drops the
+        # bar still forming — which is how the strategy asks for closed candles.
+        end = len(override) - start_pos
+        return [dict(row) for row in override[max(0, end - count) : max(0, end)]]
 
     bid = state.quotes.get(symbol, (1.0, 1.0))[0]
     rows = []
@@ -261,7 +287,9 @@ def copy_rates_from_pos(symbol: str, timeframe: int, start_pos: int, count: int)
     step = _timeframe_seconds(timeframe)
     now = datetime.now(tz=timezone.utc).replace(microsecond=0)
     first = now - timedelta(seconds=step * (count + start_pos))
-    return _make_rates(symbol, count, step, first)
+    return _make_rates(
+        symbol, count, step, first, timeframe=timeframe, start_pos=start_pos
+    )
 
 
 def copy_rates_from(symbol: str, timeframe: int, date_from: datetime, count: int):
@@ -269,7 +297,11 @@ def copy_rates_from(symbol: str, timeframe: int, date_from: datetime, count: int
         state.error = (4301, "Unknown symbol")
         return None
     return _make_rates(
-        symbol, count, _timeframe_seconds(timeframe), date_from.replace(tzinfo=timezone.utc)
+        symbol,
+        count,
+        _timeframe_seconds(timeframe),
+        date_from.replace(tzinfo=timezone.utc),
+        timeframe=timeframe,
     )
 
 
@@ -280,7 +312,9 @@ def copy_rates_range(symbol: str, timeframe: int, date_from: datetime, date_to: 
     step = _timeframe_seconds(timeframe)
     span = int((date_to - date_from).total_seconds())
     count = max(1, span // step)
-    return _make_rates(symbol, count, step, date_from.replace(tzinfo=timezone.utc))
+    return _make_rates(
+        symbol, count, step, date_from.replace(tzinfo=timezone.utc), timeframe=timeframe
+    )
 
 
 def order_calc_margin(

@@ -74,9 +74,14 @@ All settings come from environment variables or `.env` (see `.env.example`).
 | `RISK_MAX_SPREAD_POINTS` | `50` | Refuse market orders while the spread is wider than this. 0 disables. |
 | `RISK_CHECK_MARGIN` | `true` | Refuse orders whose required margin exceeds free margin. |
 | `PREFLIGHT_ORDER_CHECK` | `true` | Run `order_check()` before `order_send()`. |
-| `SIGNAL_TIMEFRAME` / `SIGNAL_CANDLES` | `M15` / `300` | What the analysis pipeline reads. |
-| `SIGNAL_MIN_CONFIDENCE` | `60` | Confidence needed before a setup is proposed. |
-| `SIGNAL_SL_ATR_MULTIPLE` / `SIGNAL_REWARD_RATIO` | `1.5` / `2.0` | Stop distance in ATR, and the reward-to-risk target. |
+| `STRATEGY_TREND_TIMEFRAME` / `_STRUCTURE_` / `_TRIGGER_` | `M15` / `M5` / `M1` | The three timeframes the engine reads. |
+| `STRATEGY_TREND_CANDLES` / `_STRUCTURE_` / `_TRIGGER_` | `300` / `180` / `120` | Closed bars fetched per timeframe. |
+| `STRATEGY_MIN_SCORE` | `65` | Score (0-100) needed before a signal is produced. |
+| `STRATEGY_SL_ATR_BUFFER` | `0.5` | ATR of headroom beyond the structure level the stop sits behind. |
+| `STRATEGY_SL_MIN_ATR` / `_MAX_ATR` | `0.8` / `3.5` | Band the stop distance is clamped into. |
+| `STRATEGY_TP1_R` / `_TP2_R` / `_TP3_R` | `1.0` / `2.0` / `3.0` | Targets as multiples of the risk distance. |
+| `STRATEGY_ORDER_TP` | `tp2` | Which target the order proposal carries. |
+| `STRATEGY_RSI_OVERBOUGHT` / `_OVERSOLD` | `75` / `25` | Momentum beyond these is treated as over-extended. |
 | `SIGNAL_MIN_EFFICIENCY` | `0.25` | Efficiency ratio below which the market reads as ranging. |
 | `BOT_ENABLED` | `false` | Whether `/bot/start` may run the loop at all. |
 | `BOT_DRY_RUN` | `true` | A running bot records decisions and sends nothing until this is false. |
@@ -261,32 +266,63 @@ A non-zero `order_check` retcode refuses the order with `400 trade_rejected` and
 check's `margin` and `margin_free` back under `preflight`. Set
 `PREFLIGHT_ORDER_CHECK=false` for a broker whose `order_check` misbehaves.
 
-## Analysis pipeline
+## XAUUSD strategy engine
 
-`GET /api/v1/signal?symbol=XAUUSD&timeframe=M15` runs:
+`GET /api/v1/signal?symbol=XAUUSD` runs one strategy, on one instrument, across
+three timeframes:
 
-    market data -> trend -> support/resistance -> momentum -> volatility
-                -> setup -> confidence -> risk manager -> TRADE / NO TRADE
+| Timeframe | Job | What it reads |
+| --- | --- | --- |
+| **M15** | the main trend | EMA 20/50/200 stacked and price the right side of the 200, EMA50 slope in ATR, Kaufman efficiency ratio to reject ranges |
+| **M5** | structure + momentum | consecutive higher highs and higher lows (or lower ones) from merged swing pivots, RSI 14 confirming and not over-extended, EMA 20/50 |
+| **M1** | the entry trigger | a pullback to EMA20, a close back through it, and RSI 14 turning in the trade's direction |
 
-| Stage | What it measures |
-| --- | --- |
-| Trend | EMA 20/50/200 separation and slope, both in ATR, filtered by Kaufman's efficiency ratio so an oscillation cannot pass as a trend. |
-| Support / resistance | Fractal swing pivots clustered into levels; reports room to the nearest level on each side, in ATR. |
-| Momentum | RSI (Wilder) and the MACD histogram, discounted when RSI is stretched. |
-| Volatility | ATR and its percentile against recent history; an extreme reading stands the pipeline down. |
-| Setup | Requires trend and momentum to agree in a tradable regime. Stop is `SIGNAL_SL_ATR_MULTIPLE` × ATR, target `SIGNAL_REWARD_RATIO` × the stop, capped at the level that would block it. |
-| Confidence | Transparent weighted blend of the stage scores (trend .35, momentum .30, S/R .20, volatility .15), 0-100. |
-| Risk manager | The proposal is sized from `RISK_PER_TRADE_PCT` and run through the same policy that guards `POST /orders`. |
+The verdict is **BUY**, **SELL** or **NO_TRADE** — nothing else.
 
-The response carries every stage's numbers and a plain-language note, so a
-verdict can always be traced to what produced it. A setup vetoed by the risk
-manager is still reported, with `risk.passed = false` and the rule that stopped
-it.
+**Order of operations matters.** M15 decides the direction; if it is neutral,
+nothing else is consulted. M5 must confirm that direction or the signal stops
+there. Only then is M1 asked, and only about the direction already settled — so
+a single indicator crossing can never produce a trade, and a signal always has
+all three timeframes behind it.
 
-**This endpoint never trades.** It returns a `proposal` — pass it to
-`POST /orders` to act on it, which re-runs the whole policy. The confidence
-score is a weighted blend, not a learned model; swap `score_confidence` in
-`app/analysis/signal.py` if you want a real one behind that slot.
+**Closed candles only.** Every series is fetched with `offset=1`, dropping the
+bar still forming. A forming bar repaints until it closes, so confirming on it
+means confirming on a value that has not happened yet.
+
+**Prices are never invented.** Entry is the live ask (buy) or bid (sell) from the
+tick. The stop is placed beyond the last M5 swing the trade depends on, widened
+by `STRATEGY_SL_ATR_BUFFER` ATR and clamped into
+`STRATEGY_SL_MIN_ATR`-`STRATEGY_SL_MAX_ATR`, so neither a very tight swing nor
+one wild bar produces an unusable stop. TP1/TP2/TP3 are multiples of that risk
+distance.
+
+Every verdict — including `NO_TRADE` — carries `symbol`, `direction`,
+`signal_score`, `entry`, `stop_loss`, `take_profit` (tp1/tp2/tp3),
+`risk_reward`, `trend`, `reasons`, `timeframe_confirmation` and `timestamp`.
+The score is a weighted blend of the three timeframes (trend 40, structure 35,
+trigger 25) and each timeframe explains itself in plain language, so a verdict
+can always be traced to what produced it.
+
+```bash
+curl --cacert certs/cert.pem -H "X-API-Key: $KEY" \
+  "https://localhost:8443/api/v1/signal?symbol=XAUUSD"
+```
+
+```json
+{"symbol": "XAUUSD", "direction": "BUY", "signal_score": 87.6,
+ "entry": 2426.09, "stop_loss": 2422.22,
+ "take_profit": {"tp1": 2429.96, "tp2": 2433.83, "tp3": 2437.70},
+ "risk_reward": {"tp1": 1.0, "tp2": 2.0, "tp3": 3.0},
+ "timeframe_confirmation": {"aligned": true, "roles": {"trend": {"...": "..."}}}}
+```
+
+Anything unclear returns `NO_TRADE` with the reason: timeframes disagreeing,
+too little closed history, a range rather than a trend, over-extended momentum,
+a trigger that has not fired, or a score below the threshold.
+
+**This endpoint never trades.** It returns a `proposal`, sized from
+`RISK_PER_TRADE_PCT` and already run through the risk policy, which
+`POST /orders` re-checks in full.
 
 ## The bot
 

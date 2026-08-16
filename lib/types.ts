@@ -114,36 +114,43 @@ export type RiskState = {
   limits: RiskLimits;
 };
 
-export type SignalStage = {
-  name: string;
-  bias: number;
+export type TimeframeRead = {
+  timeframe: string;
+  bias: "bullish" | "bearish" | "neutral";
   strength: number;
-  direction: "buy" | "sell" | "flat";
-  note: string;
+  reasons: string[];
   [key: string]: unknown;
 };
 
-export type SignalSetup = {
-  side: OrderSide;
-  entry: number;
-  stop_loss: number;
-  take_profit: number;
-  reward_ratio: number;
-  target_capped_by_level: boolean;
-};
+export type SignalDirection = "BUY" | "SELL" | "NO_TRADE";
 
+export type TargetSet = { tp1: number | null; tp2: number | null; tp3: number | null };
+
+/** One verdict from the XAUUSD multi-timeframe strategy engine. */
 export type SignalResult = {
   symbol: string;
-  timeframe: string;
-  candles: number;
-  as_of: string;
-  price: { bid: number; ask: number; atr: number };
-  stages: Record<string, SignalStage>;
-  decision: "trade" | "no_trade";
-  confidence: number;
-  min_confidence: number;
+  direction: SignalDirection;
+  signal_score: number;
+  min_score: number;
+  entry: number | null;
+  stop_loss: number | null;
+  take_profit: TargetSet;
+  risk_reward: TargetSet;
+  trend: {
+    primary: string;
+    trend_timeframe: string;
+    structure_timeframe: string;
+    trigger_timeframe: string;
+  };
   reasons: string[];
-  setup: SignalSetup | null;
+  timeframe_confirmation: { aligned: boolean; roles: Record<string, TimeframeRead> };
+  timestamp: string;
+  /** Which target the order proposal carries, since an MT5 order has one TP. */
+  order_target: keyof TargetSet;
+  price: { bid: number; ask: number };
+  as_of: string | null;
+  /** Execution-facing view of the same verdict. */
+  decision: "trade" | "no_trade";
   proposal: {
     symbol: string;
     side: OrderSide;
@@ -163,7 +170,8 @@ export type BotTrade = {
   volume: number;
   sl: number;
   tp: number;
-  confidence: number;
+  direction: SignalDirection;
+  score: number;
   executed: boolean;
   detail: string;
   order: number | null;
@@ -188,7 +196,8 @@ export type BotStatus = {
     at: string;
     bar: string;
     decision: string;
-    confidence: number;
+    direction: SignalDirection;
+    score: number;
     reason: string;
   } | null;
   trades_today: number;

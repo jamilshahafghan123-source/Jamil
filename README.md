@@ -111,21 +111,28 @@ position slots remain. A breach comes back as `403 risk_rejected` with the rule
 that stopped it, and a `risk_per_trade` rejection includes the largest volume
 that would have fitted. Details are in the [bridge README](bridge/README.md#risk-policy).
 
-## Analysis pipeline
+## XAUUSD strategy engine
 
-The Signal panel runs the bridge's read of the market and shows every stage:
+The Signal panel shows one strategy reading three timeframes:
 
-    market data -> trend -> support/resistance -> momentum -> volatility
-                -> setup -> confidence -> risk manager -> TRADE / NO TRADE
+| Timeframe | Job |
+| --- | --- |
+| **M15** | the main trend — EMA 20/50/200 stack, slope, efficiency ratio |
+| **M5** | structure and momentum — higher highs/lows, RSI 14 |
+| **M1** | the entry trigger — pullback to EMA20, reclaim, RSI turning |
 
-Each stage reports its own numbers and a plain-language note, so a TRADE or NO
-TRADE verdict can be traced back to what produced it. When the pipeline proposes
-a setup, **Load into ticket** fills the order form with the side, risk-sized
-volume, stop loss and take profit — it does not send anything. You press the
-button, and the risk policy is applied again server-side at that point.
+The verdict is **BUY**, **SELL** or **NO_TRADE**. M15 sets the direction, M5 has
+to confirm it, and only then is M1 asked — so no single indicator crossing can
+produce a trade. Every read uses **closed candles**; the forming bar is excluded.
 
-Orders also pass `order_check()` before `order_send()`, so the terminal
-validates margin, stops and volume before anything reaches the market.
+Entry is the live quote, the stop sits beyond the last M5 swing widened by ATR,
+and TP1/TP2/TP3 are configurable multiples of that risk (1R/2R/3R by default —
+the panel marks which one the order would carry). **Load into ticket** fills the
+order form; nothing is sent until you press the button, and the risk policy is
+re-applied server-side at that point.
+
+Full detail, including every configurable knob, is in the
+[bridge README](bridge/README.md#xauusd-strategy-engine).
 
 ## The bot
 
@@ -182,5 +189,5 @@ application itself has no mock path.
 
 ```bash
 npm run typecheck && npm run build     # UI
-cd bridge && pytest                    # bridge (121 tests)
+cd bridge && pytest                    # bridge (140 tests)
 ```

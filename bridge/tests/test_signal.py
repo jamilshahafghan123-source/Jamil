@@ -1,4 +1,7 @@
-"""The analysis pipeline, end to end through GET /signal."""
+"""The strategy wired to live data, position sizing and the risk manager.
+
+    E  risk manager rejects the proposal -> no order is sent
+"""
 
 from __future__ import annotations
 
@@ -15,167 +18,189 @@ def signal_client(client_factory):
     return client_factory(RISK_ENABLED="true")
 
 
-def load(mt5, rows, *, bid=None, ask=None):
-    """Put a candle series behind XAUUSD, with quotes to match its last close."""
-    mt5.state.rates[GOLD] = rows
-    close = rows[-1]["close"]
-    mt5.state.quotes[GOLD] = (bid or close - 0.15, ask or close + 0.15)
+def load(mt5, rates):
+    """Put a multi-timeframe fixture behind XAUUSD, with a matching quote."""
+    mt5.state.rates[GOLD] = rates
+    price = series.last_close(rates)
+    mt5.state.quotes[GOLD] = (round(price - 0.15, 2), round(price + 0.15, 2))
+    return price
 
 
 def get(client, **params):
-    query = {"symbol": GOLD, **params}
-    response = client.get("/api/v1/signal", params=query, headers=AUTH)
+    response = client.get("/api/v1/signal", params={"symbol": GOLD, **params}, headers=AUTH)
     assert response.status_code == 200, response.text
     return response.json()
 
 
-def test_every_stage_reports_in_order(signal_client, mt5):
-    load(mt5, series.uptrend())
+# --- the endpoint contract ----------------------------------------------------
+
+
+def test_bullish_market_is_reported_as_a_buy(signal_client, mt5):
+    load(mt5, series.xauusd_bullish())
     body = get(signal_client)
 
-    assert list(body["stages"]) == ["trend", "support_resistance", "momentum", "volatility"]
-    for stage in body["stages"].values():
-        assert -1 <= stage["bias"] <= 1
-        assert 0 <= stage["strength"] <= 1
-        assert stage["note"]
-    assert body["symbol"] == GOLD
-    assert body["decision"] in {"trade", "no_trade"}
+    assert body["direction"] == "BUY"
+    assert body["decision"] == "trade"
+    assert body["signal_score"] >= body["min_score"]
+    assert body["timeframe_confirmation"]["aligned"] is True
+    assert body["risk"]["passed"] is True
 
 
-def test_trending_series_is_read_as_trending_with_realistic_indicators(signal_client, mt5):
-    """Guards the fixture as much as the code: a series that only ever rises
-    pins RSI at 100 and produces no pivots, quietly hollowing out the stages."""
-    load(mt5, series.uptrend())
-    stages = get(signal_client)["stages"]
-
-    assert stages["trend"]["trending"] is True
-    assert stages["trend"]["efficiency_ratio"] > 0.25
-    assert 40 < stages["momentum"]["rsi"] < 95  # pullbacks, not a straight line
-    # Both sides present, so the support/resistance stage has a real opinion.
-    assert stages["support_resistance"]["support"] is not None
-    assert stages["support_resistance"]["resistance"] is not None
-    assert stages["support_resistance"]["strength"] > 0
-
-
-def test_uptrend_produces_a_long_setup(signal_client, mt5):
-    load(mt5, series.uptrend())
+def test_bearish_market_is_reported_as_a_sell(signal_client, mt5):
+    load(mt5, series.xauusd_bearish())
     body = get(signal_client)
 
-    assert body["stages"]["trend"]["direction"] == "buy"
-    setup = body["setup"]
-    assert setup is not None
-    assert setup["side"] == "buy"
-    assert setup["stop_loss"] < setup["entry"] < setup["take_profit"]
-    assert setup["reward_ratio"] > 0
+    assert body["direction"] == "SELL"
+    assert body["proposal"]["side"] == "sell"
 
 
-def test_downtrend_produces_a_short_setup(signal_client, mt5):
-    load(mt5, series.downtrend())
+def test_the_proposal_is_sized_from_the_risk_budget(signal_client, mt5):
+    load(mt5, series.xauusd_bullish())
     body = get(signal_client)
-
-    assert body["stages"]["trend"]["direction"] == "sell"
-    setup = body["setup"]
-    assert setup is not None
-    assert setup["side"] == "sell"
-    assert setup["take_profit"] < setup["entry"] < setup["stop_loss"]
-
-
-def test_a_trade_decision_carries_a_sized_proposal(signal_client, mt5):
-    load(mt5, series.uptrend())
-    body = get(signal_client)
-
-    if body["decision"] != "trade":
-        pytest.skip(f"series did not clear the threshold: {body['reasons'][0]}")
 
     proposal = body["proposal"]
     assert proposal["symbol"] == GOLD
     assert proposal["volume"] > 0
-    assert proposal["sl"] and proposal["tp"]
-    assert body["risk"]["passed"] is True
-    assert body["confidence"] >= body["min_confidence"]
+    assert proposal["sl"] == body["stop_loss"]
+    # An MT5 order carries one target; the configured one.
+    assert proposal["tp"] == body["take_profit"][body["order_target"]]
 
 
 def test_the_proposal_is_accepted_by_the_orders_endpoint(signal_client, mt5):
-    """What the pipeline proposes must be something the risk policy accepts."""
-    load(mt5, series.uptrend())
+    """What the strategy proposes must be something the risk policy accepts."""
+    load(mt5, series.xauusd_bullish())
     body = get(signal_client)
-    if body["decision"] != "trade":
-        pytest.skip("no trade proposed for this series")
 
     response = signal_client.post("/api/v1/orders", json=body["proposal"], headers=AUTH)
     assert response.status_code == 201, response.text
     assert response.json()["risk"]["enabled"] is True
 
 
-def test_choppy_market_yields_no_trade(signal_client, mt5):
-    load(mt5, series.choppy())
+def test_conflicting_timeframes_report_no_trade(signal_client, mt5):
+    load(mt5, series.xauusd_conflicting())
     body = get(signal_client)
 
+    assert body["direction"] == "NO_TRADE"
     assert body["decision"] == "no_trade"
     assert body["proposal"] is None
-    assert body["reasons"]
-
-
-def test_extreme_volatility_blocks_any_setup(signal_client, mt5):
-    load(mt5, series.volatility_spike())
-    body = get(signal_client)
-
-    assert body["stages"]["volatility"]["regime"] == "extreme"
-    assert body["stages"]["volatility"]["tradable"] is False
-    assert body["decision"] == "no_trade"
-    assert body["setup"] is None
-    assert "wild" in body["reasons"][0]
 
 
 def test_the_pipeline_never_sends_an_order(signal_client, mt5):
-    load(mt5, series.uptrend())
+    load(mt5, series.xauusd_bullish())
     get(signal_client)
     assert mt5.state.sent_requests == []
 
 
-def test_confidence_threshold_is_respected(client_factory, mt5):
-    load(mt5, series.uptrend())
-    strict = client_factory(RISK_ENABLED="true", SIGNAL_MIN_CONFIDENCE="99")
-    body = get(strict)
-
-    assert body["decision"] == "no_trade"
-    assert body["proposal"] is None
-    assert "below the 99.0 threshold" in body["reasons"][0]
+def test_unknown_symbol_is_a_404(signal_client):
+    assert signal_client.get(
+        "/api/v1/signal", params={"symbol": "NOPE"}, headers=AUTH
+    ).status_code == 404
 
 
-def test_risk_manager_can_veto_a_confident_setup(signal_client, mt5):
-    """Two open positions: the setup stands, the risk manager still says no."""
-    load(mt5, series.uptrend())
-    order = {
+# --- closed candles -----------------------------------------------------------
+
+
+def test_the_forming_bar_is_excluded(signal_client, mt5):
+    """Requirement: confirm on closed candles only.
+
+    A violent bar is appended to every timeframe as the one still forming. If
+    the engine read it, the verdict would flip; it must not.
+    """
+    rates = series.xauusd_bullish()
+    load(mt5, rates)
+    before = get(signal_client)
+    assert before["direction"] == "BUY"
+
+    crash_times = {}
+    for timeframe, rows in rates.items():
+        last = dict(rows[-1])
+        crash = last["close"] - 60
+        crash_times[timeframe] = last["time"] + 60
+        rows.append(
+            {**last, "time": crash_times[timeframe], "open": last["close"],
+             "high": last["close"], "low": crash, "close": crash}
+        )
+    load(mt5, rates)
+
+    after = get(signal_client)
+
+    # A 60-dollar collapse on every timeframe would end any long. It does not,
+    # because the bar it lives on has not closed.
+    assert after["direction"] == "BUY", "the forming bar leaked into the decision"
+    # The newest bar the engine used is the one before the crash, not the crash.
+    from datetime import datetime, timezone
+
+    newest_used = datetime.fromisoformat(after["as_of"].replace("Z", "+00:00"))
+    crash_bar = datetime.fromtimestamp(crash_times[series.TF_M15], tz=timezone.utc)
+    assert newest_used < crash_bar
+    assert before["direction"] == after["direction"]
+
+
+@pytest.mark.anyio
+async def test_closed_candles_helper_drops_the_newest_bar(mt5):
+    from app.analysis import signal as pipeline
+    from app.config import get_settings
+    from app.mt5.session import MT5Session
+
+    rates = series.xauusd_bullish()
+    mt5.state.rates[GOLD] = rates
+    session = MT5Session(get_settings())
+    await session.connect()
+    try:
+        closed = await pipeline.closed_candles(
+            session, symbol=GOLD, timeframe="M5", count=50
+        )
+        injected = rates[series.TF_M5]
+        assert closed.close[-1] == pytest.approx(injected[-2]["close"])
+        assert closed.close[-1] != pytest.approx(injected[-1]["close"])
+    finally:
+        await session.shutdown()
+
+
+# --- E: the risk manager has the final word -----------------------------------
+
+
+def test_e_risk_manager_rejection_produces_no_order(signal_client, mt5):
+    """A perfectly good setup, refused because the position limit is used."""
+    price = load(mt5, series.xauusd_bullish())
+    seed = {
         "symbol": GOLD, "side": "buy", "volume": 0.10, "type": "market",
-        "sl": round(mt5.state.quotes[GOLD][1] - 4, 2),
-        "tp": round(mt5.state.quotes[GOLD][1] + 8, 2),
+        "sl": round(price - 4, 2), "tp": round(price + 8, 2),
     }
     for _ in range(2):
-        assert signal_client.post("/api/v1/orders", json=order, headers=AUTH).status_code == 201
+        assert signal_client.post("/api/v1/orders", json=seed, headers=AUTH).status_code == 201
+    sent_before = len(mt5.state.sent_requests)
 
     body = get(signal_client)
-    if body["setup"] is None:
-        pytest.skip("no setup to veto")
 
+    # The strategy still says BUY - it is the risk manager that says no.
+    assert body["direction"] == "BUY"
     assert body["decision"] == "no_trade"
     assert body["risk"]["passed"] is False
     assert body["risk"]["rule"] == "max_positions"
-    # The proposal is still reported, so the desk can show what was blocked.
+    assert "Risk manager" in body["reasons"][0]
+    # The proposal is still reported so the desk can show what was blocked.
     assert body["proposal"] is not None
+    # Nothing left the bridge.
+    assert len(mt5.state.sent_requests) == sent_before
 
 
-def test_short_history_is_rejected_clearly(signal_client, mt5):
-    load(mt5, series.uptrend(bars=40))
-    response = signal_client.get(
-        "/api/v1/signal", params={"symbol": GOLD, "candles": 60}, headers=AUTH
-    )
-    assert response.status_code == 422
-    assert "at least 60" in response.json()["message"]
+def test_e_a_blocked_proposal_is_also_refused_by_the_orders_endpoint(signal_client, mt5):
+    price = load(mt5, series.xauusd_bullish())
+    seed = {
+        "symbol": GOLD, "side": "buy", "volume": 0.10, "type": "market",
+        "sl": round(price - 4, 2), "tp": round(price + 8, 2),
+    }
+    for _ in range(2):
+        signal_client.post("/api/v1/orders", json=seed, headers=AUTH)
+
+    body = get(signal_client)
+    response = signal_client.post("/api/v1/orders", json=body["proposal"], headers=AUTH)
+
+    assert response.status_code == 403
+    assert response.json()["details"]["rule"] == "max_positions"
 
 
-def test_unknown_symbol_is_a_404(signal_client):
-    response = signal_client.get(
-        "/api/v1/signal", params={"symbol": "NOPE"}, headers=AUTH
-    )
-    assert response.status_code == 404
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"

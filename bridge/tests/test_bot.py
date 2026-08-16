@@ -12,15 +12,17 @@ from tests.conftest import AUTH
 GOLD = "XAUUSD"
 
 
-def load(mt5, rows):
-    mt5.state.rates[GOLD] = rows
-    close = rows[-1]["close"]
-    mt5.state.quotes[GOLD] = (close - 0.15, close + 0.15)
+def load(mt5, rates):
+    """Multi-timeframe fixture plus a matching quote."""
+    mt5.state.rates[GOLD] = rates
+    price = series.last_close(rates)
+    mt5.state.quotes[GOLD] = (round(price - 0.15, 2), round(price + 0.15, 2))
+    return price
 
 
 @pytest.fixture
 def trending(mt5):
-    load(mt5, series.uptrend())
+    load(mt5, series.xauusd_bullish())
     return mt5
 
 
@@ -69,7 +71,7 @@ def test_dry_run_is_the_default_even_when_enabled(client_factory, trending):
 
 
 def test_bot_refuses_to_start_on_a_live_account(client_factory, mt5):
-    load(mt5, series.uptrend())
+    load(mt5, series.xauusd_bullish())
     mt5.state.trade_mode = mt5.ACCOUNT_TRADE_MODE_REAL
     client = bot_client(client_factory)
 
@@ -128,7 +130,10 @@ def test_start_cannot_switch_off_dry_run(client_factory, trending):
 # --- behaviour ----------------------------------------------------------------
 
 
-def test_dry_run_records_the_trade_without_sending_it(client_factory, trending, mt5):
+def test_f_dry_run_records_the_strategy_signal_without_sending_it(
+    client_factory, trending, mt5
+):
+    """BOT_DRY_RUN=true: the XAUUSD strategy runs for real, no order is placed."""
     client = bot_client(client_factory)
     client.post("/bot/start", json={}, headers=AUTH)
 
@@ -140,9 +145,11 @@ def test_dry_run_records_the_trade_without_sending_it(client_factory, trending, 
     assert trade["executed"] is False
     assert trade["side"] == "buy"
     assert trade["symbol"] == GOLD
+    assert trade["sl"] and trade["tp"], "the strategy's stop and target are recorded"
     assert "dry run" in trade["detail"]
-    # The whole point: nothing reached the terminal.
+    # The whole point: nothing reached the terminal, and no position exists.
     assert mt5.state.sent_requests == []
+    assert mt5.state.positions == {}
 
 
 def test_live_mode_sends_the_order_through_the_normal_path(
@@ -168,7 +175,7 @@ def test_live_mode_sends_the_order_through_the_normal_path(
 def test_a_no_trade_verdict_is_recorded_and_nothing_is_sent(
     client_factory, mt5
 ):
-    load(mt5, series.choppy())
+    load(mt5, series.xauusd_conflicting())
     client = bot_client(client_factory, BOT_DRY_RUN="false")
     client.post("/bot/start", json={}, headers=AUTH)
 

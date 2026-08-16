@@ -131,8 +131,8 @@ export default function BotPanel({
 
       {bot.last_decision ? (
         <p className="pipeline-note" style={{ marginTop: 10 }}>
-          Last decision: <strong>{bot.last_decision.decision.replace("_", " ")}</strong> at{" "}
-          {number(bot.last_decision.confidence, 0)}% — {bot.last_decision.reason}
+          Last decision: <strong>{bot.last_decision.direction.replace("_", " ")}</strong> at
+          score {number(bot.last_decision.score, 0)} — {bot.last_decision.reason}
         </p>
       ) : null}
 

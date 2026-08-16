@@ -178,6 +178,31 @@ def swing_points(
     return swing_highs, swing_lows
 
 
+def distinct_swings(
+    points: Sequence[tuple[int, float]], *, min_separation: int, keep: str = "high"
+) -> list[tuple[int, float]]:
+    """Collapse pivots belonging to the same swing into one.
+
+    A rounded top prints several qualifying pivots a bar or two apart. Counting
+    them as separate swings makes "higher high" comparisons meaningless — they
+    compare a swing against itself — so pivots closer together than
+    `min_separation` bars are merged, keeping the more extreme price.
+    """
+    if not points:
+        return []
+
+    merged: list[tuple[int, float]] = [points[0]]
+    for index, price in points[1:]:
+        last_index, last_price = merged[-1]
+        if index - last_index < min_separation:
+            better = price > last_price if keep == "high" else price < last_price
+            if better:
+                merged[-1] = (index, price)
+        else:
+            merged.append((index, price))
+    return merged
+
+
 def cluster_levels(
     points: Sequence[tuple[int, float]], tolerance: float
 ) -> list[dict[str, float | int]]:
