@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# The official MetaTrader5 package ships Windows-only wheels. The bridge is
+# importable (and testable) everywhere; it only needs this at connect time.
+MetaTrader5>=5.0.45 ; sys_platform == "win32"
