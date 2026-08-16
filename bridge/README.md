@@ -71,6 +71,13 @@ All settings come from environment variables or `.env` (see `.env.example`).
 | `RISK_MAX_LOT` | `0.10` | Per-order lot ceiling (effective cap is the lower of this and `MAX_VOLUME`). |
 | `RISK_REQUIRE_SL` / `RISK_REQUIRE_TP` | `true` | Refuse orders without protective levels. |
 | `RISK_ALLOWED_SYMBOLS` | `XAUUSD` | Comma-separated allowlist for orders. Empty allows all. |
+| `RISK_MAX_SPREAD_POINTS` | `50` | Refuse market orders while the spread is wider than this. 0 disables. |
+| `RISK_CHECK_MARGIN` | `true` | Refuse orders whose required margin exceeds free margin. |
+| `PREFLIGHT_ORDER_CHECK` | `true` | Run `order_check()` before `order_send()`. |
+| `SIGNAL_TIMEFRAME` / `SIGNAL_CANDLES` | `M15` / `300` | What the analysis pipeline reads. |
+| `SIGNAL_MIN_CONFIDENCE` | `60` | Confidence needed before a setup is proposed. |
+| `SIGNAL_SL_ATR_MULTIPLE` / `SIGNAL_REWARD_RATIO` | `1.5` / `2.0` | Stop distance in ATR, and the reward-to-risk target. |
+| `SIGNAL_MIN_EFFICIENCY` | `0.25` | Efficiency ratio below which the market reads as ranging. |
 
 ## Endpoints
 
@@ -92,6 +99,7 @@ Every endpoint except `GET /health` requires the API key, sent either as
 | `GET` | `/api/v1/positions` | Open positions. |
 | `POST` | `/api/v1/positions/{ticket}/close` | Close fully or partially. |
 | `PATCH` | `/api/v1/positions/{ticket}` | Move stop loss / take profit. |
+| `GET` | `/api/v1/signal?symbol=XAUUSD` | Run the analysis pipeline. Read-only. |
 | `GET` | `/api/v1/risk` | Risk limits, today's P/L and the remaining loss budget. |
 | `GET` | `/api/v1/history/deals` | Closed deals (defaults to the last 7 days). |
 
@@ -207,6 +215,8 @@ naming the limit that stopped it:
 | `require_sl` / `require_tp` | on | Both protective levels are present. |
 | `max_lot` | `0.10` | Volume is within the lot ceiling. |
 | `max_positions` | `2` | Fewer positions open than the limit. |
+| `max_spread` | `50 pts` | The live spread is inside the limit (market orders only — a pending order fills at a spread nobody can measure now). |
+| `margin` | on | `order_calc_margin()` fits inside free margin. |
 | `max_daily_loss` | `2%` | Realised + floating loss for the day is under budget. |
 | `risk_per_trade` | `0.5%` | Entry-to-stop distance costs no more than this share of balance, priced from the symbol's tick value. A rejection includes `suggested_volume`, the largest size that would fit. |
 
@@ -218,6 +228,44 @@ refused.
 The daily window is the server-day boundary (MT5 reports broker-server time),
 and only trading deals count towards it: deposits, withdrawals and credits are
 excluded.
+
+## order_check before order_send
+
+Every live order is validated by the terminal before it is sent:
+
+    risk policy -> order_check() -> order_send() -> MT5
+
+A non-zero `order_check` retcode refuses the order with `400 trade_rejected` and
+`details.stage = "order_check"`, and nothing is sent. Accepted orders carry the
+check's `margin` and `margin_free` back under `preflight`. Set
+`PREFLIGHT_ORDER_CHECK=false` for a broker whose `order_check` misbehaves.
+
+## Analysis pipeline
+
+`GET /api/v1/signal?symbol=XAUUSD&timeframe=M15` runs:
+
+    market data -> trend -> support/resistance -> momentum -> volatility
+                -> setup -> confidence -> risk manager -> TRADE / NO TRADE
+
+| Stage | What it measures |
+| --- | --- |
+| Trend | EMA 20/50/200 separation and slope, both in ATR, filtered by Kaufman's efficiency ratio so an oscillation cannot pass as a trend. |
+| Support / resistance | Fractal swing pivots clustered into levels; reports room to the nearest level on each side, in ATR. |
+| Momentum | RSI (Wilder) and the MACD histogram, discounted when RSI is stretched. |
+| Volatility | ATR and its percentile against recent history; an extreme reading stands the pipeline down. |
+| Setup | Requires trend and momentum to agree in a tradable regime. Stop is `SIGNAL_SL_ATR_MULTIPLE` × ATR, target `SIGNAL_REWARD_RATIO` × the stop, capped at the level that would block it. |
+| Confidence | Transparent weighted blend of the stage scores (trend .35, momentum .30, S/R .20, volatility .15), 0-100. |
+| Risk manager | The proposal is sized from `RISK_PER_TRADE_PCT` and run through the same policy that guards `POST /orders`. |
+
+The response carries every stage's numbers and a plain-language note, so a
+verdict can always be traced to what produced it. A setup vetoed by the risk
+manager is still reported, with `risk.passed = false` and the rule that stopped
+it.
+
+**This endpoint never trades.** It returns a `proposal` — pass it to
+`POST /orders` to act on it, which re-runs the whole policy. The confidence
+score is a weighted blend, not a learned model; swap `score_confidence` in
+`app/analysis/signal.py` if you want a real one behind that slot.
 
 ## Safety model
 

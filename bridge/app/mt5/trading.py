@@ -261,11 +261,13 @@ async def place_order(
         session,
         settings,
         symbol=req.symbol,
+        side=req.side,
         volume=volume,
         entry=float(request["price"]),
         sl=request.get("sl"),
         tp=request.get("tp"),
         symbol_info=symbol_info,
+        is_market=is_market,
     )
 
     if req.dry_run:
@@ -283,6 +285,30 @@ async def place_order(
         data["risk"] = assessment
         return data
 
+    # Pre-flight: let the terminal validate margin, stops and volume before the
+    # order is sent for real. A failed check never reaches the market.
+    preflight: dict[str, Any] | None = None
+    if settings.preflight_order_check:
+        check = await session.run(lambda mt5: mt5.order_check(request))
+        if check is None:
+            raise await session.fail(
+                "order_check failed before sending.", request=_jsonable_request(request)
+            )
+        preflight = to_dict(check)
+        preflight.pop("request", None)
+        check_retcode = int(preflight.get("retcode", 0))
+        if check_retcode != 0:
+            raise TradeRejectedError(
+                f"Pre-flight order_check refused the order: {describe_retcode(check_retcode)}",
+                details={
+                    "stage": "order_check",
+                    "retcode": check_retcode,
+                    "retcode_description": describe_retcode(check_retcode),
+                    "comment": preflight.get("comment"),
+                    "sent_request": _jsonable_request(request),
+                },
+            )
+
     result = await session.run(lambda mt5: mt5.order_send(request))
     if result is None:
         raise await session.fail(
@@ -290,6 +316,13 @@ async def place_order(
         )
 
     data = _unpack_send_result(result)
+    if preflight is not None:
+        data["preflight"] = {
+            "retcode": int(preflight.get("retcode", 0)),
+            "margin": preflight.get("margin"),
+            "margin_free": preflight.get("margin_free"),
+            "comment": preflight.get("comment"),
+        }
     data["dry_run"] = False
     data["sent_request"] = _jsonable_request(request)
     data["risk"] = assessment

@@ -114,6 +114,58 @@ export type RiskState = {
   limits: RiskLimits;
 };
 
+export type SignalStage = {
+  name: string;
+  bias: number;
+  strength: number;
+  direction: "buy" | "sell" | "flat";
+  note: string;
+  [key: string]: unknown;
+};
+
+export type SignalSetup = {
+  side: OrderSide;
+  entry: number;
+  stop_loss: number;
+  take_profit: number;
+  reward_ratio: number;
+  target_capped_by_level: boolean;
+};
+
+export type SignalResult = {
+  symbol: string;
+  timeframe: string;
+  candles: number;
+  as_of: string;
+  price: { bid: number; ask: number; atr: number };
+  stages: Record<string, SignalStage>;
+  decision: "trade" | "no_trade";
+  confidence: number;
+  min_confidence: number;
+  reasons: string[];
+  setup: SignalSetup | null;
+  proposal: {
+    symbol: string;
+    side: OrderSide;
+    type: OrderType;
+    volume: number;
+    sl: number;
+    tp: number;
+  } | null;
+  risk?: { passed: boolean; rule?: string; [key: string]: unknown };
+};
+
+/** A setup loaded from the signal panel into the order ticket. */
+export type TicketPreset = {
+  side: OrderSide;
+  type: OrderType;
+  volume: number;
+  sl: number;
+  tp: number;
+  /** Changes on every load so the same setup can be re-applied. */
+  nonce: number;
+};
+
 /** Risk figures the bridge attaches to an accepted or checked order. */
 export type RiskAssessment = {
   enabled: boolean;

@@ -60,6 +60,27 @@ class Settings(BaseSettings):
     risk_require_tp: bool = True
     # Comma-separated symbol allowlist for orders. Empty allows every symbol.
     risk_allowed_symbols: str = "XAUUSD"
+    # Refuse market orders while the spread is wider than this, in points.
+    # Broker-specific: 50 points suits XAUUSD on a typical demo server. 0 disables.
+    risk_max_spread_points: int = Field(default=50, ge=0)
+    # Refuse orders whose required margin does not fit in free margin.
+    risk_check_margin: bool = True
+    # Run order_check() before order_send() and refuse on a non-zero retcode.
+    preflight_order_check: bool = True
+
+    # --- Signal pipeline ------------------------------------------------------
+    signal_timeframe: str = "M15"
+    signal_candles: int = Field(default=300, ge=60, le=5000)
+    # Minimum confidence (0-100) before the pipeline proposes a trade.
+    signal_min_confidence: float = Field(default=60.0, ge=0, le=100)
+    signal_atr_period: int = Field(default=14, ge=2)
+    # Stop loss distance as a multiple of ATR, and the reward-to-risk target.
+    signal_sl_atr_multiple: float = Field(default=1.5, gt=0)
+    signal_reward_ratio: float = Field(default=2.0, gt=0)
+    # Skip setups while ATR sits above this percentile of its own recent range.
+    signal_max_volatility_percentile: float = Field(default=90.0, ge=0, le=100)
+    # Kaufman efficiency ratio below this means "ranging" - no trend setup.
+    signal_min_efficiency: float = Field(default=0.25, ge=0, le=1)
     default_deviation: int = Field(default=20, ge=0)
     default_magic: int = 20260816
     order_comment_prefix: str = "fastapi-bridge"

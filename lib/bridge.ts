@@ -16,6 +16,7 @@ import type {
   OrderRequestBody,
   Position,
   RiskState,
+  SignalResult,
   SymbolSummary,
   Tick,
   TradeResult,
@@ -275,6 +276,16 @@ export function getCandles(params: {
 /** GET /positions */
 export function getPositions(): Promise<Position[]> {
   return request<Position[]>(apiPath("/positions"));
+}
+
+/** GET /signal - the analysis pipeline's verdict for one symbol. */
+export function getSignal(params: {
+  symbol: string;
+  timeframe?: string;
+}): Promise<SignalResult> {
+  const query = new URLSearchParams({ symbol: params.symbol });
+  if (params.timeframe) query.set("timeframe", params.timeframe);
+  return request<SignalResult>(apiPath(`/signal?${query.toString()}`));
 }
 
 /** GET /risk - policy limits and how much of today's budget is left. */

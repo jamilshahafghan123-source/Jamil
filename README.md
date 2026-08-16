@@ -58,6 +58,7 @@ The UI only ever calls these. Each one proxies to the bridge and returns
 | `GET /api/mt5/candles` | `GET /candles` | OHLC candles for the chart |
 | `GET /api/mt5/positions` | `GET /positions` | Real open positions |
 | `GET /api/mt5/risk` | `GET /risk` | Risk limits, today's P/L, remaining loss budget |
+| `GET /api/mt5/signal` | `GET /signal` | Analysis pipeline verdict for a symbol |
 | `POST /api/mt5/orders` | `POST /orders` | Market / limit / stop, with volume, SL and TP |
 | `POST /api/mt5/positions/{ticket}/close` | `POST /positions/{ticket}/close` | Close a real position |
 
@@ -99,12 +100,30 @@ refused. Defaults, all configurable in `bridge/.env`:
 | Maximum lot | 0.10 |
 | Stop loss / take profit | both required |
 | Tradable symbols | XAUUSD |
+| Maximum spread (market orders) | 50 points |
+| Margin | must fit in free margin |
 | Account type | demo only |
 
 The Risk panel shows how much of today's loss budget is left and how many
 position slots remain. A breach comes back as `403 risk_rejected` with the rule
 that stopped it, and a `risk_per_trade` rejection includes the largest volume
 that would have fitted. Details are in the [bridge README](bridge/README.md#risk-policy).
+
+## Analysis pipeline
+
+The Signal panel runs the bridge's read of the market and shows every stage:
+
+    market data -> trend -> support/resistance -> momentum -> volatility
+                -> setup -> confidence -> risk manager -> TRADE / NO TRADE
+
+Each stage reports its own numbers and a plain-language note, so a TRADE or NO
+TRADE verdict can be traced back to what produced it. When the pipeline proposes
+a setup, **Load into ticket** fills the order form with the side, risk-sized
+volume, stop loss and take profit — it does not send anything. You press the
+button, and the risk policy is applied again server-side at that point.
+
+Orders also pass `order_check()` before `order_send()`, so the terminal
+validates margin, stops and volume before anything reaches the market.
 
 ## Connection states
 
@@ -130,6 +149,9 @@ suite:
 ```bash
 cd bridge
 API_KEYS=dev-token ALLOW_INSECURE_HTTP=true python tests/serve_with_stub_terminal.py --port 8443
+
+# --series uptrend | downtrend | choppy | volatility_spike shapes the XAUUSD
+# candles, so the signal pipeline has something to read.
 ```
 
 Quotes and fills are then synthetic and the harness says so on startup. It is
@@ -140,5 +162,5 @@ application itself has no mock path.
 
 ```bash
 npm run typecheck && npm run build     # UI
-cd bridge && pytest                    # bridge (40 tests)
+cd bridge && pytest                    # bridge (92 tests)
 ```

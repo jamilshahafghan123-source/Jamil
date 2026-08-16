@@ -10,6 +10,7 @@ import type {
   RiskState,
   SymbolSummary,
   Tick,
+  TicketPreset,
 } from "@/lib/types";
 import { Panel, Spinner, humanizeCode } from "./ui";
 
@@ -37,6 +38,7 @@ export default function OrderTicket({
   symbolInfo,
   tick,
   risk,
+  preset,
   liveExecutionEnabled,
   bridgeReady,
   onOrderPlaced,
@@ -45,6 +47,7 @@ export default function OrderTicket({
   symbolInfo: SymbolSummary | null;
   tick: Tick | null;
   risk: RiskState | null;
+  preset: TicketPreset | null;
   liveExecutionEnabled: boolean;
   bridgeReady: boolean;
   onOrderPlaced: () => void;
@@ -95,6 +98,18 @@ export default function OrderTicket({
   useEffect(() => {
     setOutcome(null);
   }, [symbol]);
+
+  // Fill the form from a setup the operator loaded out of the signal panel.
+  // Keyed on the nonce so loading the same setup twice still applies.
+  useEffect(() => {
+    if (!preset) return;
+    setSide(preset.side);
+    setType(preset.type);
+    setVolume(String(preset.volume));
+    setSl(String(preset.sl));
+    setTp(String(preset.tp));
+    setOutcome(null);
+  }, [preset?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();

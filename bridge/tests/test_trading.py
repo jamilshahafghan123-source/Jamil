@@ -67,18 +67,41 @@ def test_volume_above_configured_cap_is_rejected(client, mt5):
     assert mt5.state.sent_requests == []
 
 
-def test_server_rejection_maps_to_400_with_retcode(client):
+def test_preflight_check_stops_the_order_before_it_is_sent(client, mt5):
+    """order_check() gates order_send(): a failed check never reaches the market."""
     settings = get_settings()
-    settings.max_volume = 10.0  # let the request through to the (fake) server
+    settings.max_volume = 10.0  # let the request through to the (fake) terminal
     try:
         response = _open_position(client, volume=6.0)
     finally:
         settings.max_volume = 2.0
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "trade_rejected"
+    assert body["details"]["stage"] == "order_check"
+    assert body["details"]["retcode"] == 10019
+    assert body["details"]["retcode_description"] == "Not enough money to complete the request"
+    assert mt5.state.sent_requests == []
+
+
+def test_accepted_order_reports_its_preflight(client):
+    body = _open_position(client).json()
+    assert body["preflight"]["retcode"] == 0
+    assert body["preflight"]["margin_free"] == 9930.0
+
+
+def test_server_rejection_maps_to_400_with_retcode(client_factory, mt5):
+    """With the pre-flight off, the trade server's own rejection is reported."""
+    direct = client_factory(PREFLIGHT_ORDER_CHECK="false", MAX_VOLUME="10.0")
+    response = _open_position(direct, volume=6.0)
+
     assert response.status_code == 400
     body = response.json()
     assert body["error"] == "trade_rejected"
     assert body["details"]["retcode"] == 10019
-    assert body["details"]["retcode_description"] == "Not enough money to complete the request"
+    assert "stage" not in body["details"]
+    assert len(mt5.state.sent_requests) == 1
 
 
 def test_dry_run_validates_without_sending(client, mt5):

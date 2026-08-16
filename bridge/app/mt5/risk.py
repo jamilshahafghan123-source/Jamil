@@ -181,9 +181,40 @@ async def snapshot(session: MT5Session, settings: Settings) -> dict[str, Any]:
             "require_sl": settings.risk_require_sl,
             "require_tp": settings.risk_require_tp,
             "allowed_symbols": settings.allowed_symbol_list,
+            "max_spread_points": settings.risk_max_spread_points,
+            "check_margin": settings.risk_check_margin,
             "demo_only": not settings.allow_live_trading,
         },
     }
+
+
+async def current_spread_points(
+    session: MT5Session, symbol: str, symbol_info: dict[str, Any]
+) -> float | None:
+    """Live spread in points, measured from the tick rather than symbol.spread."""
+    tick = await session.run(lambda mt5: mt5.symbol_info_tick(symbol))
+    if tick is None:
+        return None
+    point = float(symbol_info.get("point") or 0.0)
+    if point <= 0:
+        return None
+    return (float(tick.ask) - float(tick.bid)) / point
+
+
+async def required_margin(
+    session: MT5Session, *, symbol: str, side: str, volume: float, price: float
+) -> float | None:
+    """Margin the terminal says this order needs, or None if it cannot say."""
+
+    def _calc(mt5: ModuleType) -> Any:
+        order_type = mt5.ORDER_TYPE_BUY if side == "buy" else mt5.ORDER_TYPE_SELL
+        return mt5.order_calc_margin(order_type, symbol, volume, price)
+
+    try:
+        margin = await session.run(_calc)
+    except AttributeError:  # pragma: no cover - very old terminal builds
+        return None
+    return float(margin) if margin is not None else None
 
 
 async def evaluate_order(
@@ -191,11 +222,13 @@ async def evaluate_order(
     settings: Settings,
     *,
     symbol: str,
+    side: str,
     volume: float,
     entry: float,
     sl: float | None,
     tp: float | None,
     symbol_info: dict[str, Any],
+    is_market: bool = True,
 ) -> dict[str, Any]:
     """Run the policy. Raises RiskRejectedError on the first breach."""
     if not settings.risk_enabled:
@@ -227,6 +260,19 @@ async def evaluate_order(
             max_lot=lot_cap,
         )
 
+    # Spread only gates market orders: a pending order fills later, at a spread
+    # nobody can measure now.
+    if is_market and settings.risk_max_spread_points > 0:
+        spread = await current_spread_points(session, symbol, symbol_info)
+        if spread is not None and spread > settings.risk_max_spread_points:
+            raise reject(
+                "max_spread",
+                f"The spread on {symbol} is {spread:.1f} points, wider than the "
+                f"{settings.risk_max_spread_points}-point limit.",
+                spread_points=round(spread, 1),
+                max_spread_points=settings.risk_max_spread_points,
+            )
+
     state = await snapshot(session, settings)
 
     if state["open_positions"] >= settings.risk_max_positions:
@@ -255,6 +301,24 @@ async def evaluate_order(
         "daily_loss_remaining": state["daily_loss_remaining"],
         "open_positions": state["open_positions"],
     }
+
+    if settings.risk_check_margin:
+        margin = await required_margin(
+            session, symbol=symbol, side=side, volume=volume, price=entry
+        )
+        free = await session.run(lambda mt5: mt5.account_info())
+        free_margin = float(free.margin_free) if free is not None else 0.0
+        if margin is not None:
+            if margin > free_margin:
+                raise reject(
+                    "margin",
+                    f"This order needs {margin:.2f} {state['currency']} of margin but only "
+                    f"{free_margin:.2f} is free.",
+                    required_margin=round(margin, 2),
+                    free_margin=round(free_margin, 2),
+                )
+            assessment["required_margin"] = round(margin, 2)
+            assessment["free_margin_after"] = round(free_margin - margin, 2)
 
     if sl and settings.risk_per_trade_pct > 0:
         risk_money = money_at_risk(

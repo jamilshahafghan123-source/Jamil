@@ -593,6 +593,87 @@ tbody tr:hover td {
   font-family: var(--mono);
 }
 
+/* --- signal ---------------------------------------------------------------- */
+
+.verdict {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.verdict-badge {
+  justify-self: start;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.verdict-badge.buy {
+  background: rgba(38, 166, 154, 0.18);
+  border-color: rgba(38, 166, 154, 0.55);
+  color: #8fe8de;
+}
+
+.verdict-badge.sell {
+  background: rgba(239, 83, 80, 0.18);
+  border-color: rgba(239, 83, 80, 0.55);
+  color: #ffa9a7;
+}
+
+.pipeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.pipeline li {
+  position: relative;
+  padding: 8px 0 8px 18px;
+  border-left: 1px solid var(--border);
+}
+
+.pipeline li::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.pipeline li:last-child {
+  border-left-color: transparent;
+}
+
+.pipeline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.pipeline-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pipeline-note {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .result-detail {
   margin-top: 8px;
   font-family: var(--mono);

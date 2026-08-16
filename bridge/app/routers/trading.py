@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, Query, status
 
 from ..config import Settings, get_settings
 from ..dependencies import get_session
+from ..analysis import signal as signal_pipeline
 from ..mt5 import risk, trading
 from ..mt5.session import MT5Session
 from ..schemas import (
@@ -137,6 +138,25 @@ async def modify_position(
         **await trading.modify_position(
             session, settings, ticket=ticket, sl=request.sl, tp=request.tp
         )
+    )
+
+
+@router.get("/signal", summary="Run the analysis pipeline for one symbol")
+async def signal(
+    symbol: str = Query(..., examples=["XAUUSD"]),
+    timeframe: str | None = Query(default=None, description="Defaults to SIGNAL_TIMEFRAME."),
+    candles: int | None = Query(default=None, ge=60, le=5000),
+    session: MT5Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Market data → trend → S/R → momentum → volatility → setup → confidence →
+    risk manager → TRADE / NO TRADE.
+
+    Read-only: this proposes an order and never sends one. Pass the `proposal`
+    to `POST /orders` to act on it — that path re-runs the whole risk policy.
+    """
+    return await signal_pipeline.generate(
+        session, settings, symbol=symbol, timeframe=timeframe, candles=candles
     )
 
 

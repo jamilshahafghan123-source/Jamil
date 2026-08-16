@@ -35,6 +35,13 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8443)
     parser.add_argument("--ssl-certfile", default=None)
     parser.add_argument("--ssl-keyfile", default=None)
+    parser.add_argument(
+        "--series",
+        choices=["uptrend", "downtrend", "choppy", "volatility_spike"],
+        default="uptrend",
+        help="Shape of the XAUUSD candles the stub serves, for exercising the "
+        "signal pipeline. Default: uptrend.",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -42,8 +49,18 @@ def main() -> int:
         print("Set API_KEYS before starting the harness.", file=sys.stderr)
         return 2
 
+    # Give XAUUSD a series with real pullbacks so the analysis pipeline has
+    # something to read; the stub's default ramp only ever rises.
+    from tests import series
+
+    rows = getattr(series, args.series)()
+    fake_mt5.state.rates["XAUUSD"] = rows
+    last = rows[-1]["close"]
+    fake_mt5.state.quotes["XAUUSD"] = (last - 0.15, last + 0.15)
+
     print("*" * 78)
     print("STUB TERMINAL — quotes and fills are synthetic, not a real MT5 account.")
+    print(f"XAUUSD is serving a synthetic '{args.series}' series.")
     print("Use `python run.py` for a real terminal.")
     print("*" * 78)
 

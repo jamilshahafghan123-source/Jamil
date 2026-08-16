@@ -11,7 +11,9 @@ import {
   type CandlesPayload,
   type Position,
   type RiskState,
+  type SignalResult,
   type SymbolSummary,
+  type TicketPreset,
   type Tick,
   type Timeframe,
 } from "@/lib/types";
@@ -21,6 +23,7 @@ import ConnectionBadge, { ExecutionBadge } from "./ConnectionBadge";
 import OrderTicket from "./OrderTicket";
 import PositionsTable from "./PositionsTable";
 import RiskPanel from "./RiskPanel";
+import SignalPanel from "./SignalPanel";
 import { ErrorNotice, Panel, RefreshIndicator } from "./ui";
 
 const POLL = {
@@ -30,6 +33,7 @@ const POLL = {
   tick: 2_000,
   candles: 30_000,
   risk: 10_000,
+  signal: 30_000,
 };
 
 const DEFAULT_SYMBOL = "EURUSD";
@@ -49,6 +53,14 @@ export default function TradingDesk() {
     enabled: online,
   });
   const risk = usePolling<RiskState>("/api/mt5/risk", POLL.risk, { enabled: online });
+  const signal = usePolling<SignalResult>(
+    `/api/mt5/signal?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}`,
+    POLL.signal,
+    { enabled: online },
+  );
+
+  // A setup the operator loaded from the signal panel into the order ticket.
+  const [preset, setPreset] = useState<TicketPreset | null>(null);
   const tick = usePolling<Tick>(`/api/mt5/tick/${encodeURIComponent(symbol)}`, POLL.tick, {
     enabled: online,
   });
@@ -114,6 +126,7 @@ export default function TradingDesk() {
               refreshTrading();
               tick.refresh();
               candles.refresh();
+              signal.refresh();
             }
           }}
         >
@@ -227,11 +240,27 @@ export default function TradingDesk() {
         <div className="stack">
           <AccountPanel state={account} online={online} />
           <RiskPanel state={risk} online={online} />
+          <SignalPanel
+            state={signal}
+            online={online}
+            digits={digits}
+            onUseProposal={(proposal) =>
+              setPreset({
+                side: proposal.side,
+                type: proposal.type,
+                volume: proposal.volume,
+                sl: proposal.sl,
+                tp: proposal.tp,
+                nonce: Date.now(),
+              })
+            }
+          />
           <OrderTicket
             symbol={symbol}
             symbolInfo={symbolInfo}
             tick={tick.data}
             risk={risk.data}
+            preset={preset}
             liveExecutionEnabled={Boolean(status.data?.live_orders_enabled)}
             bridgeReady={online}
             onOrderPlaced={refreshTrading}

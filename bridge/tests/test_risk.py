@@ -152,6 +152,54 @@ def test_balance_operations_do_not_count_as_trading_losses(risk_client, mt5):
     assert risk_client.post("/api/v1/orders", json=order(), headers=AUTH).status_code == 201
 
 
+def test_wide_spread_blocks_a_market_order(risk_client, mt5):
+    bid, _ = mt5.state.quotes[GOLD]
+    mt5.state.quotes[GOLD] = (bid, bid + 1.00)  # 100 points on a 0.01 point size
+
+    response = risk_client.post("/api/v1/orders", json=order(), headers=AUTH)
+    assert response.status_code == 403
+    details = response.json()["details"]
+    assert details["rule"] == "max_spread"
+    assert details["spread_points"] == 100.0
+    assert details["max_spread_points"] == 50
+    assert mt5.state.sent_requests == []
+
+
+def test_wide_spread_does_not_block_a_pending_order(risk_client, mt5):
+    """A pending order fills later, at a spread nobody can measure now."""
+    bid, _ = mt5.state.quotes[GOLD]
+    mt5.state.quotes[GOLD] = (bid, bid + 1.00)
+
+    pending = order(type="limit", price=2380.00, sl=2376.00, tp=2392.00)
+    assert risk_client.post("/api/v1/orders", json=pending, headers=AUTH).status_code == 201
+
+
+def test_spread_gate_can_be_disabled(client_factory, mt5):
+    bid, _ = mt5.state.quotes[GOLD]
+    mt5.state.quotes[GOLD] = (bid, bid + 1.00)
+    lenient = client_factory(RISK_ENABLED="true", RISK_MAX_SPREAD_POINTS="0")
+    assert lenient.post("/api/v1/orders", json=order(), headers=AUTH).status_code == 201
+
+
+def test_insufficient_margin_is_refused(risk_client, mt5):
+    # 0.10 lots of gold at ~2400 on 1:100 leverage needs ~240; leave less free.
+    mt5.state.account = mt5.state.account._replace(margin_free=50.0)
+
+    response = risk_client.post("/api/v1/orders", json=order(), headers=AUTH)
+    assert response.status_code == 403
+    details = response.json()["details"]
+    assert details["rule"] == "margin"
+    assert details["free_margin"] == 50.0
+    assert details["required_margin"] > 50.0
+    assert mt5.state.sent_requests == []
+
+
+def test_margin_is_reported_on_an_accepted_order(risk_client):
+    body = risk_client.post("/api/v1/orders", json=order(), headers=AUTH).json()
+    assert body["risk"]["required_margin"] > 0
+    assert body["risk"]["free_margin_after"] > 0
+
+
 def test_dry_run_is_judged_by_the_same_policy(risk_client, mt5):
     response = risk_client.post(
         "/api/v1/orders", json=order(volume=0.25, dry_run=True), headers=AUTH
@@ -181,6 +229,8 @@ def test_risk_endpoint_reports_the_live_budget(risk_client, mt5):
         "require_sl": True,
         "require_tp": True,
         "allowed_symbols": [GOLD],
+        "max_spread_points": 50,
+        "check_margin": True,
         "demo_only": True,
     }
 

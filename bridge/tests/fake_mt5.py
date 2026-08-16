@@ -83,6 +83,14 @@ class _State:
         self.next_ticket = 500_001
         self.positions: dict[int, PositionInfo] = {}
         self.orders: dict[int, OrderInfo] = {}
+        # symbol -> explicit candle rows, for tests that shape the series.
+        self.rates: dict[str, list[dict]] = {}
+        self.account = AccountInfo(
+            login=5031234, trade_mode=ACCOUNT_TRADE_MODE_DEMO, balance=10_000.0,
+            equity=10_050.0, margin=120.0, margin_free=9_930.0, currency="USD",
+            leverage=100, server="MetaQuotes-Demo", name="Demo Account",
+            trade_allowed=True,
+        )
         self.deals: list[DealInfo] = []
         self.sent_requests: list[dict[str, Any]] = []
         self.symbols: dict[str, SymbolInfo] = {
@@ -160,11 +168,8 @@ def _require_init() -> bool:
 def account_info() -> AccountInfo | None:
     if not _require_init():
         return None
-    return AccountInfo(
-        login=5031234, trade_mode=state.trade_mode, balance=10_000.0, equity=10_050.0,
-        margin=120.0, margin_free=9_930.0, currency="USD", leverage=100,
-        server="MetaQuotes-Demo", name="Demo Account", trade_allowed=True,
-    )
+    # trade_mode stays on the state so tests can flip demo/real independently.
+    return state.account._replace(trade_mode=state.trade_mode)
 
 
 def terminal_info() -> TerminalInfo | None:
@@ -216,6 +221,12 @@ def symbol_info_tick(symbol: str) -> Tick | None:
 def _make_rates(symbol: str, count: int, step_seconds: int, first_time: datetime) -> list[dict]:
     # Real MT5 returns a numpy structured array; rows support row["field"] access,
     # which is all the bridge relies on, so plain dicts stand in fine here.
+    # Tests that care about the shape of the series (the analysis pipeline) inject
+    # their own bars instead of using the ramp below.
+    override = state.rates.get(symbol)
+    if override is not None:
+        return [dict(row) for row in override[-count:]]
+
     bid = state.quotes.get(symbol, (1.0, 1.0))[0]
     rows = []
     for i in range(count):
@@ -270,6 +281,19 @@ def copy_rates_range(symbol: str, timeframe: int, date_from: datetime, date_to: 
     span = int((date_to - date_from).total_seconds())
     count = max(1, span // step)
     return _make_rates(symbol, count, step, date_from.replace(tzinfo=timezone.utc))
+
+
+def order_calc_margin(
+    order_type: int, symbol: str, volume: float, price: float
+) -> float | None:
+    """Margin for `volume` lots, mirroring MT5: contract value / leverage."""
+    if not _require_init():
+        return None
+    info = state.symbols.get(symbol)
+    if info is None:
+        return None
+    contract = float(info.trade_contract_size)
+    return round(price * contract * volume / state.account.leverage, 2)
 
 
 # --- trading ------------------------------------------------------------------
