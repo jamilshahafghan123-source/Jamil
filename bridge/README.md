@@ -266,6 +266,25 @@ A non-zero `order_check` retcode refuses the order with `400 trade_rejected` and
 check's `margin` and `margin_free` back under `preflight`. Set
 `PREFLIGHT_ORDER_CHECK=false` for a broker whose `order_check` misbehaves.
 
+## Checking a demo connection
+
+Before trusting anything else, confirm the terminal, the account and the feed:
+
+```bash
+cd bridge
+python scripts/connection_test.py --login 5054539011 --server MetaQuotes-Demo
+```
+
+It reads `.env`, attaches to the running terminal, and checks the account
+number, the broker server, demo mode, XAUUSD's live quote, the M15/M5/M1 closed
+candle history and the signal engine — then prints a PASS/FAIL line for each and
+exits non-zero if any failed.
+
+It is read-only by construction: `order_send` is replaced with a guard that
+raises before reaching the terminal, and the report states how many orders were
+attempted (it must be 0). Your password is read from `.env` into memory and is
+never printed or logged.
+
 ## XAUUSD strategy engine
 
 `GET /api/v1/signal?symbol=XAUUSD` runs one strategy, on one instrument, across
