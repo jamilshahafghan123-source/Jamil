@@ -83,6 +83,45 @@ export type TradeResult = {
   comment?: string | null;
   dry_run?: boolean;
   sent_request?: Record<string, unknown> | null;
+  risk?: RiskAssessment | null;
+};
+
+export type RiskLimits = {
+  risk_per_trade_pct: number;
+  max_daily_loss_pct: number;
+  max_positions: number;
+  max_lot: number;
+  require_sl: boolean;
+  require_tp: boolean;
+  allowed_symbols: string[];
+  demo_only: boolean;
+};
+
+export type RiskState = {
+  enabled: boolean;
+  currency: string;
+  balance: number;
+  equity: number;
+  opening_balance: number;
+  daily: { realized: number; floating: number; total: number; open_positions: number };
+  daily_loss: number;
+  daily_loss_pct: number;
+  daily_loss_budget: number;
+  daily_loss_remaining: number;
+  daily_loss_limit_hit: boolean;
+  open_positions: number;
+  positions_remaining: number;
+  limits: RiskLimits;
+};
+
+/** Risk figures the bridge attaches to an accepted or checked order. */
+export type RiskAssessment = {
+  enabled: boolean;
+  risk_money?: number;
+  risk_pct?: number;
+  risk_budget?: number;
+  daily_loss_pct?: number;
+  open_positions?: number;
 };
 
 export type OrderType = "market" | "limit" | "stop";

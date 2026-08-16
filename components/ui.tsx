@@ -98,6 +98,8 @@ export function humanizeCode(code: string): string {
       return "MT5 terminal unavailable";
     case "trade_rejected":
       return "Trade rejected by MT5";
+    case "risk_rejected":
+      return "Blocked by the risk policy";
     case "trading_not_allowed":
       return "Trading not allowed";
     case "symbol_not_found":

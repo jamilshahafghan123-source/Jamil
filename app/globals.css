@@ -545,6 +545,54 @@ tbody tr:hover td {
   }
 }
 
+/* --- risk ------------------------------------------------------------------ */
+
+.risk-meter {
+  margin-bottom: 14px;
+}
+
+.risk-meter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.risk-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.risk-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.risk-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.risk-grid dt {
+  color: var(--muted);
+}
+
+.risk-grid dd {
+  margin: 0;
+  text-align: right;
+  font-family: var(--mono);
+}
+
 .result-detail {
   margin-top: 8px;
   font-family: var(--mono);

@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 
 import { ApiClientError, apiFetch } from "@/lib/client";
-import type { OrderOutcome, OrderSide, OrderType, SymbolSummary, Tick } from "@/lib/types";
+import type {
+  OrderOutcome,
+  OrderSide,
+  OrderType,
+  RiskState,
+  SymbolSummary,
+  Tick,
+} from "@/lib/types";
 import { Panel, Spinner, humanizeCode } from "./ui";
 
 type Outcome =
@@ -29,6 +36,7 @@ export default function OrderTicket({
   symbol,
   symbolInfo,
   tick,
+  risk,
   liveExecutionEnabled,
   bridgeReady,
   onOrderPlaced,
@@ -36,6 +44,7 @@ export default function OrderTicket({
   symbol: string;
   symbolInfo: SymbolSummary | null;
   tick: Tick | null;
+  risk: RiskState | null;
   liveExecutionEnabled: boolean;
   bridgeReady: boolean;
   onOrderPlaced: () => void;
@@ -51,6 +60,24 @@ export default function OrderTicket({
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   const digits = symbolInfo?.digits ?? 5;
+
+  // Mirror the bridge's policy locally so the form cannot submit an order the
+  // bridge is certain to refuse. The bridge stays the authority either way.
+  const limits = risk?.enabled ? risk.limits : null;
+  const symbolBlocked = Boolean(
+    limits?.allowed_symbols.length && !limits.allowed_symbols.includes(symbol),
+  );
+  const positionsFull = Boolean(risk?.enabled && risk.positions_remaining <= 0);
+  const dailyLimitHit = Boolean(risk?.enabled && risk.daily_loss_limit_hit);
+  const maxLot = limits ? Math.min(limits.max_lot, symbolInfo?.volume_max ?? Infinity) : symbolInfo?.volume_max;
+
+  const blockedReason = symbolBlocked
+    ? `The risk policy only allows ${limits?.allowed_symbols.join(", ")}.`
+    : dailyLimitHit
+      ? "The daily loss limit has been reached — no new orders today."
+      : positionsFull
+        ? `The position limit (${limits?.max_positions}) is already used.`
+        : null;
 
   // Seed the pending-order price from the live quote when switching away from market.
   useEffect(() => {
@@ -129,6 +156,7 @@ export default function OrderTicket({
   }
 
   const disabled = submitting || !bridgeReady;
+  const cannotSubmit = disabled || Boolean(blockedReason);
   const submitLabel = validateOnly
     ? "Validate order"
     : `${side === "buy" ? "Buy" : "Sell"} ${volume || "0"} ${symbol}`;
@@ -179,7 +207,7 @@ export default function OrderTicket({
             type="number"
             inputMode="decimal"
             min={symbolInfo?.volume_min ?? 0.01}
-            max={symbolInfo?.volume_max ?? undefined}
+            max={maxLot ?? undefined}
             step={symbolInfo?.volume_step ?? 0.01}
             value={volume}
             onChange={(event) => setVolume(event.target.value)}
@@ -189,7 +217,8 @@ export default function OrderTicket({
           {symbolInfo ? (
             <span className="hint">
               min {symbolInfo.volume_min} · step {symbolInfo.volume_step} · max{" "}
-              {symbolInfo.volume_max}
+              {maxLot}
+              {limits && limits.max_lot < symbolInfo.volume_max ? " (risk policy)" : ""}
             </span>
           ) : null}
         </div>
@@ -212,7 +241,9 @@ export default function OrderTicket({
 
         <div className="field-row">
           <div className="field">
-            <label htmlFor="order-sl">Stop loss</label>
+            <label htmlFor="order-sl">
+              Stop loss{limits?.require_sl ? " *" : ""}
+            </label>
             <input
               id="order-sl"
               type="number"
@@ -220,12 +251,15 @@ export default function OrderTicket({
               step={symbolInfo ? symbolInfo.point : 0.00001}
               value={sl}
               onChange={(event) => setSl(event.target.value)}
-              placeholder="none"
+              placeholder={limits?.require_sl ? "required" : "none"}
               disabled={disabled}
+              required={limits?.require_sl}
             />
           </div>
           <div className="field">
-            <label htmlFor="order-tp">Take profit</label>
+            <label htmlFor="order-tp">
+              Take profit{limits?.require_tp ? " *" : ""}
+            </label>
             <input
               id="order-tp"
               type="number"
@@ -233,11 +267,19 @@ export default function OrderTicket({
               step={symbolInfo ? symbolInfo.point : 0.00001}
               value={tp}
               onChange={(event) => setTp(event.target.value)}
-              placeholder="none"
+              placeholder={limits?.require_tp ? "required" : "none"}
               disabled={disabled}
+              required={limits?.require_tp}
             />
           </div>
         </div>
+
+        {limits ? (
+          <p className="hint" style={{ margin: "0 0 10px", color: "var(--muted)" }}>
+            Risk policy: max {limits.risk_per_trade_pct}% of balance per trade
+            {sl ? "" : " — set a stop loss to size it"}.
+          </p>
+        ) : null}
 
         <label
           style={{
@@ -262,10 +304,17 @@ export default function OrderTicket({
           type="submit"
           className={`btn ${validateOnly ? "primary" : side}`}
           style={{ width: "100%", padding: "11px 12px" }}
-          disabled={disabled}
+          disabled={cannotSubmit}
+          title={blockedReason ?? undefined}
         >
           {submitting ? <Spinner /> : null} {submitting ? "Sending…" : submitLabel}
         </button>
+
+        {blockedReason ? (
+          <div className="notice warn" style={{ marginTop: 10 }}>
+            <span>{blockedReason}</span>
+          </div>
+        ) : null}
 
         {!liveExecutionEnabled ? (
           <p className="hint" style={{ marginTop: 10, color: "var(--muted)" }}>
@@ -296,6 +345,11 @@ function OutcomeNotice({ outcome }: { outcome: Outcome }) {
             {result.deal ? <span>deal #{result.deal}</span> : null}
             {result.volume ? <span>volume {result.volume}</span> : null}
             {result.price ? <span>price {result.price}</span> : null}
+            {result.risk?.risk_money != null ? (
+              <span>
+                risk: {result.risk.risk_money} ({result.risk.risk_pct}% of balance)
+              </span>
+            ) : null}
             {result.comment ? <span>comment: {result.comment}</span> : null}
           </div>
         </div>

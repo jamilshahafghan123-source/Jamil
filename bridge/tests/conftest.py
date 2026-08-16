@@ -20,6 +20,9 @@ os.environ.update(
         "SSL_CERTFILE": "",
         "SSL_KEYFILE": "",
         "DEFAULT_MAGIC": "999001",
+        # Off by default so the order-mechanics tests below exercise order
+        # building rather than the policy. test_risk.py turns it back on.
+        "RISK_ENABLED": "false",
     }
 )
 
@@ -53,3 +56,32 @@ def mt5():
 def client():
     with TestClient(create_app(get_settings())) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def client_factory():
+    """Build a client with specific settings, e.g. client_factory(RISK_ENABLED="true")."""
+    opened: list[TestClient] = []
+    # Restore whatever was there before, rather than deleting the key - the
+    # baseline environment above must survive into the next test.
+    previous: dict[str, str | None] = {}
+
+    def make(**env: object) -> TestClient:
+        for key, value in env.items():
+            previous.setdefault(key, os.environ.get(key))
+            os.environ[key] = str(value)
+        get_settings.cache_clear()
+        context = TestClient(create_app(get_settings()))
+        opened.append(context)
+        return context.__enter__()
+
+    yield make
+
+    for context in opened:
+        context.__exit__(None, None, None)
+    for key, value in previous.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    get_settings.cache_clear()

@@ -15,15 +15,21 @@ import type {
   Candle,
   OrderRequestBody,
   Position,
+  RiskState,
   SymbolSummary,
   Tick,
   TradeResult,
 } from "./types";
 
+/**
+ * Codes this layer raises itself. Errors coming back from the bridge keep their
+ * own code (`risk_rejected`, `trade_rejected`, `terminal_unavailable`, …) so the
+ * UI can react to them, which is why `code` is a plain string.
+ */
 export type BridgeErrorCode =
   /** The bridge could not be reached at all: DNS, refused, timeout, TLS. */
   | "bridge_offline"
-  /** The bridge answered, but with an error status. */
+  /** The bridge answered with an error and no code of its own. */
   | "bridge_error"
   /** The server is missing MT5_BRIDGE_URL / MT5_BRIDGE_TOKEN. */
   | "not_configured"
@@ -31,16 +37,11 @@ export type BridgeErrorCode =
   | "live_execution_disabled";
 
 export class BridgeError extends Error {
-  readonly code: BridgeErrorCode;
+  readonly code: string;
   readonly status: number;
   readonly details: unknown;
 
-  constructor(
-    code: BridgeErrorCode,
-    message: string,
-    status: number,
-    details?: unknown,
-  ) {
+  constructor(code: string, message: string, status: number, details?: unknown) {
     super(message);
     this.name = "BridgeError";
     this.code = code;
@@ -187,10 +188,21 @@ async function request<T>(
       pickString(payload, "message") ??
       pickString(payload, "detail") ??
       `Bridge responded with HTTP ${response.status}.`;
-    throw new BridgeError("bridge_error", message, response.status, payload);
+    // The bridge's own envelope carries a code in `error`; keep it so the UI can
+    // tell a risk rejection from a rejected trade from a dead terminal.
+    const code = pickString(payload, "error") ?? "bridge_error";
+    throw new BridgeError(code, message, response.status, pickDetails(payload));
   }
 
   return payload as T;
+}
+
+/** Unwrap the bridge envelope's `details`, falling back to the whole payload. */
+function pickDetails(payload: unknown): unknown {
+  if (payload && typeof payload === "object" && "details" in payload) {
+    return (payload as { details: unknown }).details;
+  }
+  return payload;
 }
 
 function pickString(payload: unknown, key: string): string | null {
@@ -263,6 +275,11 @@ export function getCandles(params: {
 /** GET /positions */
 export function getPositions(): Promise<Position[]> {
   return request<Position[]>(apiPath("/positions"));
+}
+
+/** GET /risk - policy limits and how much of today's budget is left. */
+export function getRisk(): Promise<RiskState> {
+  return request<RiskState>(apiPath("/risk"));
 }
 
 /** POST /orders */

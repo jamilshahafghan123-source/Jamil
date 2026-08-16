@@ -64,6 +64,13 @@ All settings come from environment variables or `.env` (see `.env.example`).
 | `MAX_VOLUME` | `1.0` | Per-order lot ceiling enforced before anything is sent. |
 | `DEFAULT_DEVIATION` | `20` | Max slippage in points for market orders. |
 | `DEFAULT_MAGIC` | `20260816` | Magic number stamped on orders from this bridge. |
+| `RISK_ENABLED` | `true` | Master switch for the risk policy below. |
+| `RISK_PER_TRADE_PCT` | `0.5` | Money between entry and stop loss, as a % of balance. |
+| `RISK_MAX_DAILY_LOSS_PCT` | `2.0` | Realised + floating loss for the day, as a % of the day's opening balance. |
+| `RISK_MAX_POSITIONS` | `2` | Open positions allowed at once. |
+| `RISK_MAX_LOT` | `0.10` | Per-order lot ceiling (effective cap is the lower of this and `MAX_VOLUME`). |
+| `RISK_REQUIRE_SL` / `RISK_REQUIRE_TP` | `true` | Refuse orders without protective levels. |
+| `RISK_ALLOWED_SYMBOLS` | `XAUUSD` | Comma-separated allowlist for orders. Empty allows all. |
 
 ## Endpoints
 
@@ -85,6 +92,7 @@ Every endpoint except `GET /health` requires the API key, sent either as
 | `GET` | `/api/v1/positions` | Open positions. |
 | `POST` | `/api/v1/positions/{ticket}/close` | Close fully or partially. |
 | `PATCH` | `/api/v1/positions/{ticket}` | Move stop loss / take profit. |
+| `GET` | `/api/v1/risk` | Risk limits, today's P/L and the remaining loss budget. |
 | `GET` | `/api/v1/history/deals` | Closed deals (defaults to the last 7 days). |
 
 ### Candles
@@ -182,9 +190,34 @@ Failures return a consistent envelope, never a bare 500:
 | 403 | `trading_not_allowed` | Live account without `ALLOW_LIVE_TRADING`, volume over `MAX_VOLUME`, or AutoTrading off in the terminal. |
 | 404 | `symbol_not_found` / `not_found` | Unknown symbol, position or order ticket. |
 | 422 | `invalid_request` | Bad request shape, or a volume outside the symbol's limits. |
+| 403 | `risk_rejected` | The order breached the risk policy. `details.rule` names the limit. |
 | 400 | `trade_rejected` | The terminal accepted the call, the trade server said no. MT5 retcode included. |
 | 502 | `terminal_call_failed` | An MT5 call failed; `mt5.last_error()` is in `details`. |
 | 503 | `terminal_unavailable` | The terminal is closed, not installed, or the IPC link dropped. The connection is retried on the next request. |
+
+## Risk policy
+
+Every order — including dry runs — is checked before it reaches the terminal.
+The first breach refuses the order with `403 risk_rejected` and `details.rule`
+naming the limit that stopped it:
+
+| Rule | Default | Checks |
+| --- | --- | --- |
+| `allowed_symbols` | `XAUUSD` | The symbol is on the allowlist. |
+| `require_sl` / `require_tp` | on | Both protective levels are present. |
+| `max_lot` | `0.10` | Volume is within the lot ceiling. |
+| `max_positions` | `2` | Fewer positions open than the limit. |
+| `max_daily_loss` | `2%` | Realised + floating loss for the day is under budget. |
+| `risk_per_trade` | `0.5%` | Entry-to-stop distance costs no more than this share of balance, priced from the symbol's tick value. A rejection includes `suggested_volume`, the largest size that would fit. |
+
+`GET /api/v1/risk` returns the same figures the checks use — today's realised and
+floating P/L, the remaining loss budget, open position slots and the limits
+themselves — so a dashboard can show how much room is left before an order is
+refused.
+
+The daily window is the server-day boundary (MT5 reports broker-server time),
+and only trading deals count towards it: deposits, withdrawals and credits are
+excluded.
 
 ## Safety model
 

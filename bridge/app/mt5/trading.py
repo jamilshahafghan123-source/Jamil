@@ -14,6 +14,7 @@ from ..errors import (
     TradeRejectedError,
     TradingNotAllowedError,
 )
+from . import risk
 from .convert import naive_utc, to_dict, utc
 from .market import ensure_symbol
 from .session import MT5Session
@@ -253,6 +254,20 @@ async def place_order(
 
     request = await session.run(_build)
 
+    # Risk policy runs on the request as it will actually be sent - real fill
+    # price, snapped volume, rounded levels. It applies to dry runs too, so a
+    # validation never reports "fine" for an order the policy would refuse.
+    assessment = await risk.evaluate_order(
+        session,
+        settings,
+        symbol=req.symbol,
+        volume=volume,
+        entry=float(request["price"]),
+        sl=request.get("sl"),
+        tp=request.get("tp"),
+        symbol_info=symbol_info,
+    )
+
     if req.dry_run:
         check = await session.run(lambda mt5: mt5.order_check(request))
         if check is None:
@@ -265,6 +280,7 @@ async def place_order(
         data["success"] = retcode == 0
         data["dry_run"] = True
         data["sent_request"] = _jsonable_request(request)
+        data["risk"] = assessment
         return data
 
     result = await session.run(lambda mt5: mt5.order_send(request))
@@ -276,6 +292,7 @@ async def place_order(
     data = _unpack_send_result(result)
     data["dry_run"] = False
     data["sent_request"] = _jsonable_request(request)
+    data["risk"] = assessment
     if not data["success"]:
         raise TradeRejectedError(
             f"Trade rejected by the server: {data['retcode_description']}",

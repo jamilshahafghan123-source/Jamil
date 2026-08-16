@@ -44,6 +44,22 @@ class Settings(BaseSettings):
     # this is flipped on deliberately.
     allow_live_trading: bool = False
     max_volume: float = Field(default=1.0, gt=0)
+
+    # --- Risk policy ----------------------------------------------------------
+    # Checked before every order. The effective lot ceiling is the lower of
+    # MAX_VOLUME and RISK_MAX_LOT.
+    risk_enabled: bool = True
+    # Money at risk between entry and stop loss, as a percentage of balance.
+    risk_per_trade_pct: float = Field(default=0.5, ge=0)
+    # Realised + floating loss for the day, as a percentage of the day's opening
+    # balance. New orders are refused once it is reached.
+    risk_max_daily_loss_pct: float = Field(default=2.0, ge=0)
+    risk_max_positions: int = Field(default=2, ge=0)
+    risk_max_lot: float = Field(default=0.10, gt=0)
+    risk_require_sl: bool = True
+    risk_require_tp: bool = True
+    # Comma-separated symbol allowlist for orders. Empty allows every symbol.
+    risk_allowed_symbols: str = "XAUUSD"
     default_deviation: int = Field(default=20, ge=0)
     default_magic: int = 20260816
     order_comment_prefix: str = "fastapi-bridge"
@@ -58,6 +74,10 @@ class Settings(BaseSettings):
     @property
     def api_key_list(self) -> list[str]:
         return [key.strip() for key in self.api_keys.split(",") if key.strip()]
+
+    @property
+    def allowed_symbol_list(self) -> list[str]:
+        return [s.strip().upper() for s in self.risk_allowed_symbols.split(",") if s.strip()]
 
     @property
     def cors_origin_list(self) -> list[str]:

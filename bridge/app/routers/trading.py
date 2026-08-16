@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, Query, status
 
 from ..config import Settings, get_settings
 from ..dependencies import get_session
-from ..mt5 import trading
+from ..mt5 import risk, trading
 from ..mt5.session import MT5Session
 from ..schemas import (
     ClosePositionRequest,
@@ -138,6 +138,15 @@ async def modify_position(
             session, settings, ticket=ticket, sl=request.sl, tp=request.tp
         )
     )
+
+
+@router.get("/risk", summary="Risk policy and how much of it is left today")
+async def risk_state(
+    session: MT5Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Live risk state: today's P/L, remaining loss budget, open slots, limits."""
+    return await risk.snapshot(session, settings)
 
 
 @router.get("/history/deals", response_model=list[Deal], summary="Closed deal history")

@@ -57,6 +57,7 @@ The UI only ever calls these. Each one proxies to the bridge and returns
 | `GET /api/mt5/tick/{symbol}` | `GET /tick/{symbol}` | Live bid/ask |
 | `GET /api/mt5/candles` | `GET /candles` | OHLC candles for the chart |
 | `GET /api/mt5/positions` | `GET /positions` | Real open positions |
+| `GET /api/mt5/risk` | `GET /risk` | Risk limits, today's P/L, remaining loss budget |
 | `POST /api/mt5/orders` | `POST /orders` | Market / limit / stop, with volume, SL and TP |
 | `POST /api/mt5/positions/{ticket}/close` | `POST /positions/{ticket}/close` | Close a real position |
 
@@ -83,6 +84,27 @@ MT5_ALLOW_LIVE_ORDERS=true npm run start
 
 The bridge keeps its own independent guard (`ALLOW_LIVE_TRADING`), which refuses
 to trade on any account that is not a demo account.
+
+## Risk policy
+
+The bridge enforces a fixed risk policy before any order reaches the terminal,
+and the desk mirrors it so the ticket cannot submit something certain to be
+refused. Defaults, all configurable in `bridge/.env`:
+
+| Limit | Default |
+| --- | --- |
+| Risk per trade (entry → stop loss) | 0.5% of balance |
+| Maximum daily loss (realised + floating) | 2% of the day's opening balance |
+| Maximum open positions | 2 |
+| Maximum lot | 0.10 |
+| Stop loss / take profit | both required |
+| Tradable symbols | XAUUSD |
+| Account type | demo only |
+
+The Risk panel shows how much of today's loss budget is left and how many
+position slots remain. A breach comes back as `403 risk_rejected` with the rule
+that stopped it, and a `risk_per_trade` rejection includes the largest volume
+that would have fitted. Details are in the [bridge README](bridge/README.md#risk-policy).
 
 ## Connection states
 

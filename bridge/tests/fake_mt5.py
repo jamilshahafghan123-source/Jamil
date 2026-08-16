@@ -46,7 +46,7 @@ TerminalInfo = namedtuple("TerminalInfo", "connected trade_allowed path build")
 SymbolInfo = namedtuple(
     "SymbolInfo",
     "name description path digits point spread trade_mode visible volume_min volume_max"
-    " volume_step filling_mode",
+    " volume_step filling_mode trade_tick_size trade_tick_value trade_contract_size",
 )
 Tick = namedtuple("Tick", "time bid ask last volume")
 SendResult = namedtuple(
@@ -63,7 +63,9 @@ OrderInfo = namedtuple(
     "OrderInfo",
     "ticket time_setup symbol type volume_initial volume_current price_open sl tp magic comment",
 )
-DealInfo = namedtuple("DealInfo", "ticket order time symbol type volume price profit comment")
+DealInfo = namedtuple(
+    "DealInfo", "ticket order time symbol type volume price profit swap commission comment"
+)
 
 # --- mutable state ------------------------------------------------------------
 
@@ -89,15 +91,29 @@ class _State:
                 digits=5, point=0.00001, spread=8, trade_mode=4, visible=True,
                 volume_min=0.01, volume_max=100.0, volume_step=0.01,
                 filling_mode=SYMBOL_FILLING_FOK,
+                trade_tick_size=0.00001, trade_tick_value=1.0, trade_contract_size=100_000.0,
             ),
             "GBPUSD": SymbolInfo(
                 name="GBPUSD", description="Great Britain Pound vs US Dollar",
                 path="Forex\\GBPUSD", digits=5, point=0.00001, spread=12, trade_mode=4,
                 visible=False, volume_min=0.01, volume_max=50.0, volume_step=0.01,
                 filling_mode=SYMBOL_FILLING_IOC,
+                trade_tick_size=0.00001, trade_tick_value=1.0, trade_contract_size=100_000.0,
+            ),
+            # 100 oz contract, 0.01 tick = 1.00 account currency per lot.
+            "XAUUSD": SymbolInfo(
+                name="XAUUSD", description="Gold vs US Dollar", path="Metals\\XAUUSD",
+                digits=2, point=0.01, spread=30, trade_mode=4, visible=True,
+                volume_min=0.01, volume_max=20.0, volume_step=0.01,
+                filling_mode=SYMBOL_FILLING_FOK,
+                trade_tick_size=0.01, trade_tick_value=1.0, trade_contract_size=100.0,
             ),
         }
-        self.quotes = {"EURUSD": (1.08500, 1.08508), "GBPUSD": (1.26400, 1.26412)}
+        self.quotes = {
+            "EURUSD": (1.08500, 1.08508),
+            "GBPUSD": (1.26400, 1.26412),
+            "XAUUSD": (2401.50, 2401.80),
+        }
 
     def ticket(self) -> int:
         self.next_ticket += 1
@@ -320,7 +336,8 @@ def _open(request: dict) -> SendResult:
         DealInfo(
             ticket=deal, order=ticket, time=int(datetime.now(tz=timezone.utc).timestamp()),
             symbol=request["symbol"], type=request["type"], volume=float(request["volume"]),
-            price=price, profit=0.0, comment=request.get("comment", ""),
+            price=price, profit=0.0, swap=0.0, commission=0.0,
+            comment=request.get("comment", ""),
         )
     )
     return SendResult(

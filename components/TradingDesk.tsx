@@ -10,6 +10,7 @@ import {
   type BridgeStatus,
   type CandlesPayload,
   type Position,
+  type RiskState,
   type SymbolSummary,
   type Tick,
   type Timeframe,
@@ -19,6 +20,7 @@ import CandleChart from "./CandleChart";
 import ConnectionBadge, { ExecutionBadge } from "./ConnectionBadge";
 import OrderTicket from "./OrderTicket";
 import PositionsTable from "./PositionsTable";
+import RiskPanel from "./RiskPanel";
 import { ErrorNotice, Panel, RefreshIndicator } from "./ui";
 
 const POLL = {
@@ -27,6 +29,7 @@ const POLL = {
   positions: 5_000,
   tick: 2_000,
   candles: 30_000,
+  risk: 10_000,
 };
 
 const DEFAULT_SYMBOL = "EURUSD";
@@ -45,6 +48,7 @@ export default function TradingDesk() {
   const positions = usePolling<Position[]>("/api/mt5/positions", POLL.positions, {
     enabled: online,
   });
+  const risk = usePolling<RiskState>("/api/mt5/risk", POLL.risk, { enabled: online });
   const tick = usePolling<Tick>(`/api/mt5/tick/${encodeURIComponent(symbol)}`, POLL.tick, {
     enabled: online,
   });
@@ -54,14 +58,27 @@ export default function TradingDesk() {
     { enabled: online },
   );
 
-  // Fall back to a symbol this account actually offers.
+  // Open on a symbol the risk policy actually allows, falling back to whatever
+  // this account offers.
+  const [symbolPinned, setSymbolPinned] = useState(false);
+
   useEffect(() => {
+    if (symbolPinned) return;
+    const allowed = risk.data?.limits.allowed_symbols ?? [];
+    if (allowed.length && !allowed.includes(symbol)) {
+      setSymbol(allowed[0]);
+      return;
+    }
     const list = symbols.data;
-    if (!list?.length) return;
-    if (!list.some((entry) => entry.name === symbol)) {
+    if (list?.length && !list.some((entry) => entry.name === symbol)) {
       setSymbol(list[0].name);
     }
-  }, [symbols.data, symbol]);
+  }, [risk.data, symbols.data, symbol, symbolPinned]);
+
+  const chooseSymbol = (next: string) => {
+    setSymbolPinned(true);
+    setSymbol(next);
+  };
 
   const symbolInfo = useMemo(
     () => symbols.data?.find((entry) => entry.name === symbol) ?? null,
@@ -72,6 +89,7 @@ export default function TradingDesk() {
   const refreshTrading = () => {
     account.refresh();
     positions.refresh();
+    risk.refresh();
   };
 
   const spread =
@@ -114,7 +132,7 @@ export default function TradingDesk() {
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <select
                   value={symbol}
-                  onChange={(event) => setSymbol(event.target.value)}
+                  onChange={(event) => chooseSymbol(event.target.value)}
                   disabled={!online || !symbols.data?.length}
                   aria-label="Symbol"
                   style={{
@@ -208,10 +226,12 @@ export default function TradingDesk() {
 
         <div className="stack">
           <AccountPanel state={account} online={online} />
+          <RiskPanel state={risk} online={online} />
           <OrderTicket
             symbol={symbol}
             symbolInfo={symbolInfo}
             tick={tick.data}
+            risk={risk.data}
             liveExecutionEnabled={Boolean(status.data?.live_orders_enabled)}
             bridgeReady={online}
             onOrderPlaced={refreshTrading}

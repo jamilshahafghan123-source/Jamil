@@ -175,6 +175,7 @@ class TradeResult(Passthrough):
     comment: str | None = None
     dry_run: bool = False
     sent_request: dict[str, Any] | None = None
+    risk: dict[str, Any] | None = None
 
 
 class Position(Passthrough):
