@@ -1,0 +1,792 @@
+/* ==========================================================================
+   MT5 AI Trading Analyst — dashboard styles
+
+   Deliberately dark-only. This is a trading terminal: it gets stared at for
+   hours, price colour coding needs a stable dark ground to read against, and
+   every real terminal a trader already uses works this way. Committing to
+   one look lets the palette carry meaning instead of surviving two themes.
+
+   Accent is gold, because the instrument is gold. Green/red are reserved
+   exclusively for P&L direction — never used decoratively, so a flash of
+   colour always means money.
+   ========================================================================== */
+
+:root {
+  --bg: #0b0d10;
+  --bg-raised: #12151a;
+  --bg-inset: #0e1116;
+  --bg-hover: #181c23;
+
+  --line: #232833;
+  --line-strong: #313846;
+
+  --text: #e8eaed;
+  --text-dim: #9aa3b0;
+  --text-faint: #646d7c;
+
+  --gold: #d9a441;
+  --gold-dim: #8a6a2c;
+  --gold-glow: rgba(217, 164, 65, 0.12);
+
+  --up: #3fb950;
+  --up-dim: rgba(63, 185, 80, 0.12);
+  --down: #f4564a;
+  --down-dim: rgba(244, 86, 74, 0.12);
+  --warn: #d99a41;
+  --warn-dim: rgba(217, 154, 65, 0.12);
+
+  --radius: 6px;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo,
+    Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers must never jitter as they tick. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.up {
+  color: var(--up);
+}
+.down {
+  color: var(--down);
+}
+.dim {
+  color: var(--text-dim);
+}
+.faint {
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  height: 56px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.brand .mark {
+  color: var(--gold);
+  font-size: 17px;
+}
+.brand .sub {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.main {
+  padding: 18px 20px 48px;
+  max-width: 1560px;
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+}
+
+/* ------------------------------------------------------------------- grid */
+
+.grid {
+  display: grid;
+  gap: 14px;
+}
+.grid.stats {
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+}
+.grid.cols-2 {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .grid.cols-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ------------------------------------------------------------------ cards */
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-inset);
+}
+
+.card-title {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.card-body {
+  padding: 14px;
+}
+.card-body.flush {
+  padding: 0;
+}
+
+/* -------------------------------------------------------------- stat tile */
+
+.stat {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.stat-label {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+  white-space: nowrap;
+}
+.stat-value {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.stat-sub {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 3px;
+}
+
+/* --------------------------------------------------------------- price box */
+
+.price {
+  display: flex;
+  align-items: flex-end;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+.price-leg .label {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.price-leg .value {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  transition: color 140ms ease;
+}
+.price-leg .value.tick-up {
+  color: var(--up);
+}
+.price-leg .value.tick-down {
+  color: var(--down);
+}
+
+/* ---------------------------------------------------------------- badges */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge.neutral {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  border-color: var(--line-strong);
+}
+.badge.gold {
+  background: var(--gold-glow);
+  color: var(--gold);
+  border-color: var(--gold-dim);
+}
+.badge.up {
+  background: var(--up-dim);
+  color: var(--up);
+  border-color: rgba(63, 185, 80, 0.35);
+}
+.badge.down {
+  background: var(--down-dim);
+  color: var(--down);
+  border-color: rgba(244, 86, 74, 0.35);
+}
+.badge.warn {
+  background: var(--warn-dim);
+  color: var(--warn);
+  border-color: rgba(217, 154, 65, 0.35);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.dot.live {
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* --------------------------------------------------------------- buttons */
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  padding: 7px 13px;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-hover);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  background: #1f242d;
+  border-color: #3d4554;
+}
+.btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.btn.primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #17130a;
+  font-weight: 650;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #e6b355;
+  border-color: #e6b355;
+}
+
+.btn.buy {
+  background: var(--up-dim);
+  border-color: rgba(63, 185, 80, 0.45);
+  color: var(--up);
+}
+.btn.sell {
+  background: var(--down-dim);
+  border-color: rgba(244, 86, 74, 0.45);
+  color: var(--down);
+}
+
+.btn.danger {
+  background: var(--down);
+  border-color: var(--down);
+  color: #fff;
+  font-weight: 700;
+}
+.btn.danger:hover:not(:disabled) {
+  background: #ff6a5e;
+  border-color: #ff6a5e;
+}
+
+.btn.sm {
+  font-size: 12px;
+  padding: 4px 9px;
+}
+
+.btn-stop {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 12px;
+  padding: 8px 15px;
+}
+
+/* ------------------------------------------------------------ mode switch */
+
+.modes {
+  display: inline-flex;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  padding: 2px;
+  gap: 2px;
+}
+.modes button {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.modes button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.modes button[aria-pressed="true"] {
+  background: var(--gold);
+  color: #17130a;
+}
+.modes button.real[aria-pressed="true"] {
+  background: var(--down);
+  color: #fff;
+}
+.modes button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------- tables */
+
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-inset);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+tbody tr:hover {
+  background: var(--bg-hover);
+}
+td.right,
+th.right {
+  text-align: right;
+}
+
+.empty {
+  padding: 26px 14px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------------- signal */
+
+.signal {
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  overflow: hidden;
+}
+.signal-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  flex-wrap: wrap;
+}
+.signal.buy .signal-head {
+  background: var(--up-dim);
+  border-bottom: 1px solid rgba(63, 185, 80, 0.28);
+}
+.signal.sell .signal-head {
+  background: var(--down-dim);
+  border-bottom: 1px solid rgba(244, 86, 74, 0.28);
+}
+.signal.flat .signal-head {
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--line);
+}
+.signal-action {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.signal.buy .signal-action {
+  color: var(--up);
+}
+.signal.sell .signal-action {
+  color: var(--down);
+}
+.signal.flat .signal-action {
+  color: var(--text-dim);
+}
+
+.levels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.level {
+  background: var(--bg-raised);
+  padding: 10px 12px;
+}
+.level .k {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.level .v {
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.level.sl .v {
+  color: var(--down);
+}
+.level.tp .v {
+  color: var(--up);
+}
+
+.reason {
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------- confidence */
+
+.conf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conf-track {
+  width: 62px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  overflow: hidden;
+}
+.conf-fill {
+  height: 100%;
+  background: var(--gold);
+  border-radius: 2px;
+  transition: width 260ms ease;
+}
+
+/* -------------------------------------------------------------- analysis */
+
+.tf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.tf {
+  background: var(--bg-raised);
+  padding: 12px;
+}
+.tf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+.tf-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.tf-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  padding: 2.5px 0;
+}
+.tf-row .k {
+  color: var(--text-faint);
+}
+.tf-row .v {
+  color: var(--text-dim);
+  text-align: right;
+  font-family: var(--mono);
+}
+
+/* ---------------------------------------------------------------- fields */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 13px;
+}
+.field label {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.field input {
+  font: inherit;
+  font-family: var(--mono);
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 8px 10px;
+  width: 100%;
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.field .hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0 14px;
+}
+
+/* --------------------------------------------------------------- banners */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid;
+  line-height: 1.5;
+}
+.banner.err {
+  background: var(--down-dim);
+  border-color: rgba(244, 86, 74, 0.35);
+  color: #ffb4ad;
+}
+.banner.warn {
+  background: var(--warn-dim);
+  border-color: rgba(217, 154, 65, 0.35);
+  color: #f0c583;
+}
+.banner.ok {
+  background: var(--up-dim);
+  border-color: rgba(63, 185, 80, 0.35);
+  color: #96e0a2;
+}
+.banner.info {
+  background: var(--bg-inset);
+  border-color: var(--line-strong);
+  color: var(--text-dim);
+}
+
+.reasons {
+  margin: 6px 0 0;
+  padding-left: 17px;
+}
+.reasons li {
+  margin: 2px 0;
+}
+
+/* ----------------------------------------------------------------- login */
+
+.login-wrap {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login-card {
+  width: 100%;
+  max-width: 366px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 30px 26px;
+}
+.login-card h1 {
+  margin: 0 0 4px;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+.login-card .tagline {
+  margin: 0 0 22px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+/* ----------------------------------------------------------------- modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 8, 0.78);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 100;
+}
+.modal {
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 22px;
+  max-width: 480px;
+  width: 100%;
+}
+.modal h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+.modal p {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.modal-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.spin {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
