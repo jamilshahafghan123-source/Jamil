@@ -30,6 +30,7 @@ import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -55,7 +56,7 @@ log = logging.getLogger("bridge")
 
 # ------------------------------------------------------------------ config
 
-BRIDGE_TOKEN = os.getenv("MT5_BRIDGE_TOKEN", "")
+BRIDGE_TOKEN_ENV = os.getenv("MT5_BRIDGE_TOKEN", "")
 MT5_LOGIN = os.getenv("MT5_LOGIN", "")
 MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
 MT5_SERVER = os.getenv("MT5_SERVER", "")
@@ -68,9 +69,31 @@ DEFAULT_SYMBOL = os.getenv("SYMBOL", "XAUUSD")
 # This is a second, independent latch from the backend's ALLOW_REAL_TRADING.
 BRIDGE_ALLOW_REAL = os.getenv("BRIDGE_ALLOW_REAL", "false").lower() == "true"
 
-if not BRIDGE_TOKEN:
-    print("ERROR: MT5_BRIDGE_TOKEN must be set.", file=sys.stderr)
-    sys.exit(1)
+TOKEN_FILE = Path(__file__).with_name(".bridge_token")
+
+
+def resolve_token() -> tuple[str, bool]:
+    """Return (token, freshly_generated).
+
+    Precedence: the MT5_BRIDGE_TOKEN environment variable, then a token
+    generated on a previous run, then a brand new random one.
+
+    Generating and persisting means a first-time local run needs no setup,
+    and the token survives restarts so the backend keeps matching. Set the
+    environment variable explicitly for anything beyond a local machine.
+    """
+    if BRIDGE_TOKEN_ENV:
+        return BRIDGE_TOKEN_ENV, False
+    if TOKEN_FILE.exists():
+        saved = TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if saved:
+            return saved, False
+    fresh = secrets.token_hex(32)
+    TOKEN_FILE.write_text(fresh, encoding="utf-8")
+    return fresh, True
+
+
+BRIDGE_TOKEN, TOKEN_WAS_GENERATED = resolve_token()
 
 TIMEFRAMES = {
     "M1": mt5.TIMEFRAME_M1,
@@ -466,5 +489,20 @@ async def close_position(req: CloseRequest) -> dict:
 
 
 if __name__ == "__main__":
-    log.info("bridge listening on %s:%s", BRIDGE_HOST, BRIDGE_PORT)
+    print()
+    print("=" * 62)
+    print("  MT5 BRIDGE")
+    print("=" * 62)
+    print(f"  Symbol        : {DEFAULT_SYMBOL}")
+    print(f"  Listening on  : http://{BRIDGE_HOST}:{BRIDGE_PORT}")
+    print(f"  Real trading  : {'ALLOWED' if BRIDGE_ALLOW_REAL else 'BLOCKED (safe)'}")
+    print()
+    if TOKEN_WAS_GENERATED:
+        print("  A new shared secret was generated and saved to .bridge_token")
+    print("  SHARED SECRET (the backend needs this exact value):")
+    print()
+    print(f"      MT5_BRIDGE_TOKEN={BRIDGE_TOKEN}")
+    print()
+    print("=" * 62)
+    print()
     uvicorn.run(app, host=BRIDGE_HOST, port=BRIDGE_PORT, log_level="info")

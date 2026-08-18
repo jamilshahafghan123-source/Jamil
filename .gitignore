@@ -34,3 +34,6 @@ Thumbs.db
 *.db
 pgdata/
 logs/
+
+# bridge shared secret, generated at runtime
+mt5-bridge/.bridge_token
