@@ -55,6 +55,20 @@ async def lifespan(app: FastAPI):
         settings.SYMBOL,
         settings.ALLOW_REAL_TRADING,
     )
+    # Probe the bridge once at boot and say so out loud. Without this the
+    # only symptom of a misconfigured MT5_BRIDGE_URL is empty dashboard
+    # panels, which is indistinguishable from "the market is quiet".
+    # The URL contains no secret; the token is never logged.
+    if await mt5.connected():
+        log.info("MT5 bridge reachable at %s", settings.MT5_BRIDGE_URL)
+    else:
+        log.warning(
+            "MT5 bridge NOT reachable at %s — account, tick, bars and "
+            "positions will be empty. Check that bridge.py is running, that "
+            "this URL is correct from inside the container, and that "
+            "MT5_BRIDGE_TOKEN matches on both sides.",
+            settings.MT5_BRIDGE_URL,
+        )
     if settings.ALLOW_REAL_TRADING:
         log.warning("ALLOW_REAL_TRADING is TRUE — live orders are possible")
     yield

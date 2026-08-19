@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -75,17 +76,27 @@ def _client_key(request: Request) -> str:
     return f"{ip}:{request.url.path}"
 
 
-class RateLimiter:
-    def __init__(self, per_minute: int | None = None) -> None:
-        self.limit = per_minute or settings.RATE_LIMIT_PER_MINUTE
+def rate_limiter(per_minute: int | None = None) -> Callable[[Request], Awaitable[None]]:
+    """Build a sliding-window rate-limit dependency.
 
-    async def __call__(self, request: Request) -> None:
+    This is a closure, not a callable class, on purpose. This module uses
+    `from __future__ import annotations`, so every annotation is a string at
+    runtime. FastAPI resolves a dependency's string annotations against
+    `call.__globals__` — which a *class instance* does not have. A callable
+    instance therefore had its `request: Request` parameter left unresolved
+    and was treated as a required **query** parameter, making every route that
+    depends on it reject all traffic with 422. A function has `__globals__`,
+    so `Request` resolves and the parameter is injected correctly.
+    """
+    limit = per_minute or settings.RATE_LIMIT_PER_MINUTE
+
+    async def dependency(request: Request) -> None:
         key = _client_key(request)
         now = time.monotonic()
         window = _hits[key]
         while window and now - window[0] > 60.0:
             window.popleft()
-        if len(window) >= self.limit:
+        if len(window) >= limit:
             retry = max(1, int(60 - (now - window[0])))
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
@@ -94,6 +105,8 @@ class RateLimiter:
             )
         window.append(now)
 
+    return dependency
 
-rate_limit = RateLimiter()
-login_rate_limit = RateLimiter(settings.LOGIN_RATE_LIMIT_PER_MINUTE)
+
+rate_limit = rate_limiter()
+login_rate_limit = rate_limiter(settings.LOGIN_RATE_LIMIT_PER_MINUTE)
