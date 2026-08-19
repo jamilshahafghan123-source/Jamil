@@ -1,16 +1,18 @@
 """AI market analyst.
 
-Contract with the model, enforced in code rather than requested politely:
+Division of labour, enforced in code rather than requested politely:
 
-1. The model receives ONLY the deterministic snapshot from indicators.py —
-   real bid/ask, real indicator values, real swing levels. It is never asked
-   to recall or estimate a price.
-2. Its output is constrained to a JSON schema (structured outputs).
-3. Every price it returns is then re-validated against the live tick before
-   the signal is persisted. Anything outside a sane band is rejected and
-   downgraded to NO_TRADE — the model cannot smuggle an invented price
-   through, because a number that didn't come from the snapshot won't
-   survive `validate_against_market`.
+* `indicators.py` measures the market from real bars.
+* `setup_engine.py` decides BUY / SELL / NO_TRADE and computes every price —
+  entry zone, trigger, stop, the three targets — and the confidence score
+  from named, auditable components.
+* This module asks the model for one thing only: a plain-language
+  explanation of what the deterministic engine already decided.
+
+The model's structured output contains **no numbers that reach a trade**. It
+cannot invent a price, move a stop, or inflate a confidence score, because
+those fields are not in its schema. Anything it does return still passes
+through `validate_against_market` before persistence.
 
 The analyst has no access to the executor and no path to the broker. It
 returns a proposal; the risk engine decides what happens to it.
@@ -24,153 +26,62 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..config import settings
+from .setup_engine import build_setup
 
 log = logging.getLogger("analyst")
 
-SYSTEM_PROMPT = """You are a disciplined intraday market analyst for XAUUSD (gold) on MetaTrader 5.
+SYSTEM_PROMPT = """You are the market-commentary layer of a XAUUSD (gold) analysis dashboard on MetaTrader 5.
 
-You will receive a JSON snapshot of real market data computed from actual broker \
-price bars: the live bid/ask, and for each of the M1, M5, M15 and H1 timeframes \
-the closes, EMA(20), EMA(50), RSI(14), ATR(14), detected trend, market structure, \
-clustered support and resistance levels, breakout and pullback state, and \
-liquidity zones.
+A deterministic engine has already measured the market from real broker bars and already decided the trade. You will receive both: the measured snapshot (bid/ask, per-timeframe EMA/RSI/MACD/ADX/ATR, market structure, ranked support and resistance, liquidity zones, tick volume) and the computed setup (action, entry zone, trigger, stop loss, three targets, risk/reward, confidence and its components).
 
-Rules you must follow:
+Your only job is to explain that decision in clear language a trader can check.
 
-- Use ONLY numbers present in the snapshot. Never invent, estimate, round from \
-memory, or recall a price, level, or indicator value. If a level you want is not \
-in the snapshot, do not use it.
-- Every price you output (entry, stop_loss, take_profit) must be at or very near a \
-level that appears in the snapshot, or within the current bid/ask.
-- Prefer the higher timeframes (H1, M15) for directional bias and the lower ones \
-(M5, M1) for timing.
-- If the timeframes disagree, the spread is wide, or structure is unclear, return \
-action "NO_TRADE". A missed trade costs nothing; a bad one costs money. NO_TRADE is \
-a good answer and you should use it often.
-- stop_loss must sit beyond invalidating structure, not at an arbitrary distance.
-- Set confidence honestly: 0-100, where above 80 means multi-timeframe confluence \
-with a clean level to trade against.
-- reason must be one short paragraph a trader can check against the snapshot.
+Rules:
 
-You do not place trades. A separate risk-management layer decides whether \
-anything you propose is executed, and it may reject or resize it."""
+- Do NOT propose a different action, price, level, or confidence. The decision is already made. You are describing it, not revising it.
+- Use ONLY numbers that appear in the input. Never estimate, round from memory, or recall a price.
+- Write plainly. Two to four sentences for the explanation. Say what the market is doing, what would confirm the setup, and what would invalidate it. No jargon walls.
+- Tick volume is a count of price changes, not traded contracts. Never call it institutional or exchange volume.
+- Liquidity zones are inferred from equal highs/lows and session extremes. Call them "potential liquidity", never claim visibility into real order flow.
+- If the action is NO_TRADE, explain what specifically is missing and what would have to happen before a trade becomes valid.
 
-# Structured-output schema. `strict`-style: no additional properties.
-ANALYSIS_SCHEMA: dict[str, Any] = {
+You do not place trades and cannot change the setup."""
+
+# Structured-output schema. Deliberately text-only: there is no field here
+# the model could use to alter a price, a level, or the confidence score.
+NARRATIVE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "bias",
-        "summary",
-        "timeframes",
-        "entry_zones",
-        "signal",
-        "warnings",
-    ],
+    "required": ["headline", "explanation", "timeframe_notes"],
     "properties": {
-        "bias": {"type": "string", "enum": ["BULLISH", "BEARISH", "NEUTRAL"]},
-        "summary": {"type": "string"},
-        "timeframes": {
+        "headline": {
+            "type": "string",
+            "description": "One sentence stating what gold is doing right now.",
+        },
+        "explanation": {
+            "type": "string",
+            "description": (
+                "Two to four plain sentences: the market read, what confirms the "
+                "setup, and what invalidates it."
+            ),
+        },
+        "timeframe_notes": {
             "type": "array",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": [
-                    "timeframe",
-                    "trend",
-                    "structure",
-                    "support",
-                    "resistance",
-                    "breakout",
-                    "pullback",
-                    "liquidity",
-                    "notes",
-                ],
+                "required": ["timeframe", "note"],
                 "properties": {
-                    "timeframe": {"type": "string", "enum": ["M1", "M5", "M15", "H1"]},
-                    "trend": {"type": "string", "enum": ["UP", "DOWN", "RANGE"]},
-                    "structure": {"type": "string"},
-                    "support": {"type": "array", "items": {"type": "number"}},
-                    "resistance": {"type": "array", "items": {"type": "number"}},
-                    "breakout": {
+                    "timeframe": {
                         "type": "string",
-                        "enum": ["UP", "DOWN", "NONE"],
+                        "enum": ["M1", "M5", "M15", "M30", "H1", "H4", "D1"],
                     },
-                    "pullback": {
-                        "type": "string",
-                        "enum": ["BULLISH", "BEARISH", "NONE"],
-                    },
-                    "liquidity": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["low", "high", "label"],
-                            "properties": {
-                                "low": {"type": "number"},
-                                "high": {"type": "number"},
-                                "label": {"type": "string"},
-                            },
-                        },
-                    },
-                    "notes": {"type": "string"},
+                    "note": {"type": "string"},
                 },
             },
         },
-        "entry_zones": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["low", "high", "label"],
-                "properties": {
-                    "low": {"type": "number"},
-                    "high": {"type": "number"},
-                    "label": {"type": "string"},
-                },
-            },
-        },
-        "signal": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": [
-                "action",
-                "entry",
-                "stop_loss",
-                "take_profit",
-                "confidence",
-                "reason",
-            ],
-            "properties": {
-                "action": {"type": "string", "enum": ["BUY", "SELL", "NO_TRADE"]},
-                "entry": {"type": ["number", "null"]},
-                "stop_loss": {"type": ["number", "null"]},
-                "take_profit": {"type": ["number", "null"]},
-                "confidence": {"type": "integer"},
-                "reason": {"type": "string"},
-            },
-        },
-        "warnings": {"type": "array", "items": {"type": "string"}},
     },
 }
-
-
-def _no_trade(reason: str, warnings: list[str] | None = None) -> dict:
-    return {
-        "bias": "NEUTRAL",
-        "summary": reason,
-        "timeframes": [],
-        "entry_zones": [],
-        "signal": {
-            "action": "NO_TRADE",
-            "entry": None,
-            "stop_loss": None,
-            "take_profit": None,
-            "confidence": 0,
-            "reason": reason,
-        },
-        "warnings": warnings or [],
-    }
 
 
 def validate_against_market(result: dict, snapshot: dict) -> tuple[dict, list[str]]:
@@ -257,26 +168,163 @@ def validate_against_market(result: dict, snapshot: dict) -> tuple[dict, list[st
     return result, problems
 
 
-async def analyze(snapshot: dict) -> tuple[dict, list[str]]:
-    """Run the analyst. Returns (analysis, validation_problems).
+def _deterministic_summary(setup: dict, snapshot: dict) -> str:
+    """Readable summary built without the model, used as the fallback.
 
-    Never raises on model trouble — a trading system that crashes because the
-    analyst hiccuped is worse than one that returns NO_TRADE.
+    The dashboard must stay useful when the AI is unconfigured or down, so
+    the narrative degrades to this rather than to an empty panel.
+    """
+    h = snapshot.get("hierarchy") or {}
+    major = (h.get("major") or {}).get("bias", "UNKNOWN").lower()
+    inter = (h.get("intermediate") or {}).get("bias", "UNKNOWN").lower()
+    action = setup.get("action", "NO_TRADE")
+
+    if action == "NO_TRADE":
+        return setup.get("blocking_reason") or setup.get("summary") or (
+            "No high-quality setup right now."
+        )
+
+    side = "long" if action == "BUY" else "short"
+    return (
+        f"Gold is {major} on the higher timeframes and {inter} on the intermediate "
+        f"ones. The engine reads a {side} setup with entry between "
+        f"{setup['entry_low']} and {setup['entry_high']}, confirmed on a "
+        f"{setup['trigger_text']}. Stop sits at {setup['stop_loss']} "
+        f"({setup['stop_loss_reason']}), first target {setup['take_profit_1']} "
+        f"at {setup['risk_reward']}R. {setup['invalidation']}"
+    )
+
+
+def _assemble(setup: dict, snapshot: dict, narrative: dict | None) -> dict:
+    """Merge the deterministic setup and the optional narrative into one payload."""
+    tfs = snapshot.get("timeframes", [])
+    setup_tf = next(
+        (t for t in tfs if t["timeframe"] in ("M15", "M5")), tfs[0] if tfs else {}
+    )
+    h = snapshot.get("hierarchy") or {}
+    major_bias = (h.get("major") or {}).get("bias", "UNKNOWN")
+    action = setup.get("action", "NO_TRADE")
+
+    bias = (
+        "BULLISH" if major_bias == "BULLISH"
+        else "BEARISH" if major_bias == "BEARISH"
+        else "NEUTRAL"
+    )
+
+    notes = {n["timeframe"]: n["note"] for n in (narrative or {}).get("timeframe_notes", [])}
+    timeframes = [
+        {
+            "timeframe": t["timeframe"],
+            "role": t.get("role", ""),
+            "trend": t["trend"],
+            "structure": (t.get("structure_detail") or {}).get("pattern", t.get("structure", "")),
+            "structure_text": (t.get("structure_detail") or {}).get("description", ""),
+            "regime": t.get("regime", "UNKNOWN"),
+            "momentum": t.get("momentum", "NEUTRAL"),
+            "rsi14": t.get("rsi14"),
+            "adx14": t.get("adx14"),
+            "atr14": t.get("atr14"),
+            "ema20": t.get("ema_fast"),
+            "ema50": t.get("ema_slow"),
+            "ema200": t.get("ema200"),
+            "macd_hist": t.get("macd_hist"),
+            "bos": t.get("bos", False),
+            "choch": t.get("choch", False),
+            "breakout": t.get("breakout", "NONE"),
+            "breakout_confirmed": t.get("breakout_confirmed", False),
+            "pullback": t.get("pullback", "NONE"),
+            "support": t.get("support", []),
+            "resistance": t.get("resistance", []),
+            "support_levels": t.get("support_levels", []),
+            "resistance_levels": t.get("resistance_levels", []),
+            "liquidity": t.get("liquidity", []),
+            "volume": t.get("volume", {}),
+            "notes": notes.get(t["timeframe"], ""),
+        }
+        for t in tfs
+    ]
+
+    liq = setup_tf.get("liquidity") or []
+    price = setup_tf.get("last_close") or 0.0
+    return {
+        "symbol": snapshot.get("symbol", ""),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "model": settings.ANALYST_MODEL if narrative else "deterministic-engine",
+        "bias": bias,
+        "headline": (narrative or {}).get("headline", ""),
+        "summary": (narrative or {}).get("explanation")
+        or _deterministic_summary(setup, snapshot),
+        "market": {
+            "price": round(float(price), 2),
+            "bid": snapshot.get("bid"),
+            "ask": snapshot.get("ask"),
+            "spread_points": snapshot.get("spread_points"),
+            "trend": bias,
+            "regime": setup_tf.get("regime", "UNKNOWN"),
+            "momentum": setup_tf.get("momentum", "NEUTRAL"),
+            "volatility": setup_tf.get("atr14", 0.0),
+            "confluence_score": snapshot.get("confluence_score", 0.0),
+        },
+        "hierarchy": h,
+        "structure": setup_tf.get("structure_detail", {}),
+        "levels": {
+            "support": setup_tf.get("support_levels", []),
+            "resistance": setup_tf.get("resistance_levels", []),
+            "session": snapshot.get("session_levels", []),
+            "liquidity_above": [z for z in liq if (z["low"] + z["high"]) / 2 >= price],
+            "liquidity_below": [z for z in liq if (z["low"] + z["high"]) / 2 < price],
+        },
+        "volume": setup_tf.get("volume", snapshot.get("volume", {})),
+        "setup": setup,
+        "timeframes": timeframes,
+        # Legacy fields the existing dashboard and Signal model already read.
+        "entry_zones": (
+            [{"low": setup["entry_low"], "high": setup["entry_high"], "label": "AI entry zone"}]
+            if setup.get("entry_low") is not None
+            else []
+        ),
+        "signal": {
+            "action": action,
+            # Midpoint of the zone whenever one exists — including on
+            # NO_TRADE, where it is the level to watch rather than to trade.
+            "entry": (
+                round((setup["entry_low"] + setup["entry_high"]) / 2, 2)
+                if setup.get("entry_low") is not None
+                and setup.get("entry_high") is not None
+                else None
+            ),
+            "stop_loss": setup.get("stop_loss"),
+            "take_profit": setup.get("take_profit_1"),
+            "risk_reward": setup.get("risk_reward"),
+            "confidence": setup.get("confidence", 0),
+            "reason": (narrative or {}).get("explanation")
+            or _deterministic_summary(setup, snapshot),
+        },
+        "reasons": setup.get("reasons", []),
+        "warnings": setup.get("warnings", []),
+    }
+
+
+async def _narrate(setup: dict, snapshot: dict) -> dict | None:
+    """Ask the model to explain the setup. Returns None if unavailable.
+
+    Never raises: a commentary outage must not stop the analysis, because
+    every number the trader needs was already computed without the model.
     """
     if not settings.ANTHROPIC_API_KEY:
-        return _no_trade("AI analyst not configured (ANTHROPIC_API_KEY unset)"), []
-
+        return None
     try:
         from anthropic import AsyncAnthropic
     except ImportError:
-        return _no_trade("anthropic SDK not installed"), []
+        return None
 
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-
+    payload = {"measured_market": snapshot, "computed_setup": setup}
     user_content = (
-        "Analyse this XAUUSD market snapshot. Every number below is real data "
-        "measured from broker price bars just now.\n\n"
-        f"```json\n{json.dumps(snapshot, indent=2)}\n```"
+        "Explain this XAUUSD analysis. Every number below was measured from real "
+        "broker bars or computed by the deterministic engine just now. Do not "
+        "change any of them.\n\n"
+        f"```json\n{json.dumps(payload, indent=2, default=str)}\n```"
     )
 
     try:
@@ -286,33 +334,45 @@ async def analyze(snapshot: dict) -> tuple[dict, list[str]]:
             system=SYSTEM_PROMPT,
             output_config={
                 "effort": settings.ANALYST_EFFORT,
-                "format": {"type": "json_schema", "schema": ANALYSIS_SCHEMA},
+                "format": {"type": "json_schema", "schema": NARRATIVE_SCHEMA},
             },
             messages=[{"role": "user", "content": user_content}],
         )
     except Exception as e:  # network, auth, rate limit, overload
-        log.exception("analyst call failed")
-        return _no_trade(f"AI analyst unavailable: {type(e).__name__}"), []
+        log.warning("analyst narration unavailable: %s", type(e).__name__)
+        return None
 
     # A refusal is a successful HTTP 200 with empty/partial content — check
     # stop_reason before touching response.content.
     if response.stop_reason == "refusal":
         detail = getattr(response, "stop_details", None)
-        cat = getattr(detail, "category", None) if detail else None
-        return _no_trade(f"AI analyst declined the request (category={cat})"), []
+        log.warning(
+            "analyst declined narration (category=%s)",
+            getattr(detail, "category", None) if detail else None,
+        )
+        return None
 
     text = next((b.text for b in response.content if b.type == "text"), None)
     if not text:
-        return _no_trade("AI analyst returned no content"), []
-
+        return None
     try:
-        result = json.loads(text)
+        return json.loads(text)
     except json.JSONDecodeError:
-        log.error("analyst returned non-JSON despite schema: %s", text[:500])
-        return _no_trade("AI analyst returned malformed output"), []
+        log.error("analyst returned non-JSON despite schema: %s", text[:300])
+        return None
 
+
+async def analyze(
+    snapshot: dict, risk_settings: Any | None = None
+) -> tuple[dict, list[str]]:
+    """Run the full analysis. Returns (analysis, validation_problems).
+
+    The deterministic engine decides everything. The model only narrates, and
+    the result is validated against the live tick regardless — defence in
+    depth, even though no model-produced number reaches the signal.
+    """
+    setup = build_setup(snapshot, risk_settings)
+    narrative = await _narrate(setup, snapshot)
+    result = _assemble(setup, snapshot, narrative)
     result, problems = validate_against_market(result, snapshot)
-    result["generated_at"] = datetime.now(timezone.utc).isoformat()
-    result["symbol"] = snapshot["symbol"]
-    result["model"] = settings.ANALYST_MODEL
     return result, problems

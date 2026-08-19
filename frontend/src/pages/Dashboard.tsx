@@ -327,8 +327,10 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 spread={tick?.spread_points}
                 time={tick?.time}
               />
-              {/* Live XAUUSD candles, straight from MT5 via the backend. */}
-              <BarChart />
+              {/* Live XAUUSD candles, straight from MT5 via the backend.
+                  Passing the analysis lets the chart draw the very same
+                  levels the analyst panel lists — never a second opinion. */}
+              <BarChart analysis={analysis} />
             </Card>
 
             <Card

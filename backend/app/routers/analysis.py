@@ -87,6 +87,8 @@ async def bars(
     count: int = Query(200, ge=10, le=1000),
     _: User = Depends(current_user),
 ) -> dict:
+    # TIMEFRAMES now covers every timeframe the MT5 bridge exposes
+    # (M1 … D1), so the chart's timeframe buttons all resolve.
     if timeframe not in TIMEFRAMES:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
