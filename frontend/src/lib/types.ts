@@ -125,6 +125,107 @@ export interface TimeframeView {
   pullback: string;
   liquidity: LevelZone[];
   notes: string;
+  // --- added by the upgraded analyst -------------------------------
+  role?: string; // MAJOR | INTERMEDIATE | SETUP | REFINEMENT
+  structure_text?: string;
+  regime?: Regime;
+  momentum?: Momentum;
+  rsi14?: number;
+  adx14?: number;
+  atr14?: number;
+  ema20?: number;
+  ema50?: number;
+  ema200?: number;
+  macd_hist?: number;
+  bos?: boolean;
+  choch?: boolean;
+  breakout_confirmed?: boolean;
+  support_levels?: PriceLevel[];
+  resistance_levels?: PriceLevel[];
+  volume?: VolumeView;
+}
+
+export type SetupStage = "WATCH" | "ENTRY_TRIGGER" | "CONFIRMED_SETUP";
+export type Regime = "TRENDING" | "RANGING" | "EXPANSION" | "CONSOLIDATION" | "UNKNOWN";
+export type Momentum = "RISING" | "FALLING" | "NEUTRAL";
+export type LevelStrength = "HIGH" | "MEDIUM" | "LOW";
+
+/** A ranked support/resistance level with the evidence behind it. */
+export interface PriceLevel {
+  price: number;
+  strength: LevelStrength;
+  touches: number;
+  reason: string;
+  distance: number;
+}
+
+export interface SessionLevel {
+  label: string; // PDH | PDL | PWH | PWL
+  price: number;
+  reason: string;
+}
+
+/** Tick volume — a count of price changes, never traded contracts. */
+export interface VolumeView {
+  type: "TICK_VOLUME";
+  current: number;
+  average: number;
+  relative: number;
+  trend: "EXPANDING" | "CONTRACTING" | "STEADY" | "UNKNOWN";
+  state: "HIGH" | "NORMAL" | "LOW" | "UNKNOWN";
+}
+
+export interface StructureView {
+  pattern: string;
+  bos: boolean;
+  choch: boolean;
+  description: string;
+}
+
+export interface TargetView {
+  price: number;
+  reason: string;
+  risk_reward: number;
+}
+
+/** The deterministic setup. Every number here is computed, not model output. */
+export interface TradeSetup {
+  action: SignalAction;
+  stage: SetupStage;
+  confidence: number;
+  confidence_components: Record<string, number>;
+  entry_low: number | null;
+  entry_high: number | null;
+  trigger: number | null;
+  trigger_text: string;
+  stop_loss: number | null;
+  stop_loss_reason: string;
+  take_profit_1: number | null;
+  take_profit_2: number | null;
+  take_profit_3: number | null;
+  targets: TargetView[];
+  risk_reward: number | null;
+  invalidation: string;
+  next_target: number | null;
+  next_target_reason: string;
+  summary: string;
+  reasons: string[];
+  warnings: string[];
+  blocking_reason: string | null;
+}
+
+export interface GroupBias {
+  bias: "BULLISH" | "BEARISH" | "RANGE" | "UNKNOWN";
+  timeframes: string[];
+  agree: boolean;
+}
+
+export interface Hierarchy {
+  major: GroupBias;
+  intermediate: GroupBias;
+  setup: GroupBias;
+  refinement: GroupBias;
+  higher_aligned: boolean;
 }
 
 export interface Analysis {
@@ -132,10 +233,35 @@ export interface Analysis {
   generated_at?: string;
   model?: string;
   bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  headline?: string;
   summary: string;
   timeframes: TimeframeView[];
   entry_zones: LevelZone[];
   warnings: string[];
+  // --- added by the upgraded analyst -------------------------------
+  market?: {
+    price: number;
+    bid: number;
+    ask: number;
+    spread_points: number;
+    trend: string;
+    regime: Regime;
+    momentum: Momentum;
+    volatility: number;
+    confluence_score: number;
+  };
+  hierarchy?: Hierarchy;
+  structure?: StructureView;
+  levels?: {
+    support: PriceLevel[];
+    resistance: PriceLevel[];
+    session: SessionLevel[];
+    liquidity_above: LevelZone[];
+    liquidity_below: LevelZone[];
+  };
+  volume?: VolumeView;
+  setup?: TradeSetup;
+  reasons?: string[];
 }
 
 export interface RiskSettings {

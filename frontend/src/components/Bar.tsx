@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { api, ApiError, fmt } from "../lib/api";
-import type { Bar as BarData, Timeframe } from "../lib/types";
+import type { Analysis, Bar as BarData, Timeframe } from "../lib/types";
 import { Empty, Spinner } from "./Primitives";
 
 /**
@@ -18,16 +18,33 @@ import { Empty, Spinner } from "./Primitives";
 const ALL_TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
 
 /**
- * The bridge understands all seven timeframes, but the backend's
- * /api/analysis/bars validates against services/indicators.TIMEFRAMES, which
- * is currently ["M1", "M5", "M15", "H1"]. The other three answer 422.
- *
- * They are seeded here so the buttons are honestly disabled instead of
- * failing on click. A 422 at runtime adds to this set too, so if the backend
- * list is ever widened the extra timeframes light up on their own with no
- * frontend change.
+ * The backend now validates /api/analysis/bars against the full bridge set
+ * (M1 … D1), so nothing is disabled up front. A 422 at runtime still adds a
+ * timeframe here, so an older backend degrades honestly instead of retrying
+ * a rejected request every five seconds.
  */
-const INITIALLY_UNSUPPORTED: Timeframe[] = ["M30", "H4", "D1"];
+const INITIALLY_UNSUPPORTED: Timeframe[] = [];
+
+/** Overlay layers the chart can draw on top of the candles. */
+const OVERLAYS = [
+  { id: "ema", label: "EMA" },
+  { id: "sr", label: "S/R" },
+  { id: "entry", label: "Entry" },
+  { id: "tpsl", label: "TP/SL" },
+  { id: "liq", label: "Liquidity" },
+] as const;
+type OverlayId = (typeof OVERLAYS)[number]["id"];
+
+/** Exponential moving average over the candle closes, for chart overlays. */
+function emaSeries(values: number[], period: number): number[] {
+  if (!values.length) return [];
+  const k = 2 / (period + 1);
+  const out: number[] = [values[0]];
+  for (let i = 1; i < values.length; i += 1) {
+    out.push(values[i] * k + out[i - 1] * (1 - k));
+  }
+  return out;
+}
 
 const DEFAULT_TIMEFRAME: Timeframe = "M5";
 const BAR_COUNT = 100;
@@ -79,7 +96,7 @@ function axisTime(iso: string, timeframe: Timeframe): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-export function BarChart() {
+export function BarChart({ analysis }: { analysis?: Analysis | null }) {
   const [timeframe, setTimeframe] = useState<Timeframe>(DEFAULT_TIMEFRAME);
   const [bars, setBars] = useState<BarData[]>([]);
   const [symbol, setSymbol] = useState("XAUUSD");
@@ -90,6 +107,9 @@ export function BarChart() {
     () => new Set(INITIALLY_UNSUPPORTED),
   );
   const [hover, setHover] = useState<number | null>(null);
+  const [overlays, setOverlays] = useState<Set<OverlayId>>(
+    () => new Set<OverlayId>(["ema", "sr", "entry", "tpsl"]),
+  );
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(720);
@@ -223,6 +243,49 @@ export function BarChart() {
     [scale, bars.length, width],
   );
 
+  // Overlay geometry. Derived from the analysis the backend already
+  // produced, so the chart draws the same levels the analyst panel lists —
+  // nothing here is recomputed or guessed on the client.
+  const emas = useMemo(() => {
+    if (!bars.length) return null;
+    const closes = bars.map((b) => b.close);
+    return {
+      e20: emaSeries(closes, 20),
+      e50: emaSeries(closes, 50),
+      e200: emaSeries(closes, 200),
+    };
+  }, [bars]);
+
+  const setup = analysis?.setup;
+  const levels = analysis?.levels;
+
+  function linePath(values: number[]): string {
+    if (!scale) return "";
+    return values
+      .map((v, i) => `${i === 0 ? "M" : "L"}${scale.x(i).toFixed(1)},${scale.y(v).toFixed(1)}`)
+      .join(" ");
+  }
+
+  /** Only draw a level that actually falls inside the visible price range. */
+  function visible(price: number | null | undefined): boolean {
+    return (
+      scale != null &&
+      price != null &&
+      Number.isFinite(price) &&
+      price <= scale.top &&
+      price >= scale.bottom
+    );
+  }
+
+  function toggle(id: OverlayId) {
+    setOverlays((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const active = hover != null ? bars[hover] : bars[bars.length - 1];
   const last = bars[bars.length - 1];
   const prev = bars.length > 1 ? bars[bars.length - 2] : undefined;
@@ -252,6 +315,24 @@ export function BarChart() {
             );
           })}
         </div>
+
+        {analysis && (
+          <div className="chart-overlays" role="group" aria-label="Chart overlays">
+            {OVERLAYS.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className="ov-toggle"
+                aria-pressed={overlays.has(o.id)}
+                onClick={() => toggle(o.id)}
+                title={`Toggle ${o.label} overlay`}
+              >
+                <span className="ov-box" aria-hidden />
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="chart-meta num">
           {loading && !bars.length ? (
@@ -369,6 +450,102 @@ export function BarChart() {
                   </g>
                 );
               })}
+
+              {/* ---- analysis overlays ---- */}
+              {overlays.has("liq") &&
+                [...(levels?.liquidity_above ?? []), ...(levels?.liquidity_below ?? [])]
+                  .filter((z) => visible(z.low) || visible(z.high))
+                  .map((z, i) => {
+                    const yA = scale.y(Math.max(z.high, z.low));
+                    const yB = scale.y(Math.min(z.high, z.low));
+                    return (
+                      <rect
+                        key={`liq${i}`}
+                        className="ov-liq"
+                        x={PAD_LEFT}
+                        y={Math.min(yA, yB)}
+                        width={plotW}
+                        height={Math.max(2, Math.abs(yB - yA))}
+                      />
+                    );
+                  })}
+
+              {overlays.has("entry") &&
+                setup?.entry_low != null &&
+                setup?.entry_high != null &&
+                (visible(setup.entry_low) || visible(setup.entry_high)) && (
+                  <rect
+                    className="ov-entry"
+                    x={PAD_LEFT}
+                    y={Math.min(scale.y(setup.entry_high), scale.y(setup.entry_low))}
+                    width={plotW}
+                    height={Math.max(2, Math.abs(scale.y(setup.entry_low) - scale.y(setup.entry_high)))}
+                  />
+                )}
+
+              {overlays.has("sr") && (
+                <>
+                  {(levels?.resistance ?? []).filter((l) => visible(l.price)).map((l) => (
+                    <g key={`r${l.price}`}>
+                      <line className="ov-res" x1={PAD_LEFT} x2={PAD_LEFT + plotW}
+                            y1={scale.y(l.price)} y2={scale.y(l.price)} />
+                      <text className="ov-label" style={{ fill: "var(--down)" }}
+                            x={PAD_LEFT + 3} y={scale.y(l.price) - 3}>
+                        R {l.price.toFixed(2)}
+                      </text>
+                    </g>
+                  ))}
+                  {(levels?.support ?? []).filter((l) => visible(l.price)).map((l) => (
+                    <g key={`s${l.price}`}>
+                      <line className="ov-sup" x1={PAD_LEFT} x2={PAD_LEFT + plotW}
+                            y1={scale.y(l.price)} y2={scale.y(l.price)} />
+                      <text className="ov-label" style={{ fill: "var(--up)" }}
+                            x={PAD_LEFT + 3} y={scale.y(l.price) - 3}>
+                        S {l.price.toFixed(2)}
+                      </text>
+                    </g>
+                  ))}
+                </>
+              )}
+
+              {overlays.has("tpsl") && setup && (
+                <>
+                  {visible(setup.stop_loss) && (
+                    <g>
+                      <line className="ov-sl" x1={PAD_LEFT} x2={PAD_LEFT + plotW}
+                            y1={scale.y(setup.stop_loss as number)}
+                            y2={scale.y(setup.stop_loss as number)} />
+                      <text className="ov-label" style={{ fill: "var(--down)" }}
+                            x={PAD_LEFT + 3} y={scale.y(setup.stop_loss as number) - 3}>
+                        SL {(setup.stop_loss as number).toFixed(2)}
+                      </text>
+                    </g>
+                  )}
+                  {[setup.take_profit_1, setup.take_profit_2, setup.take_profit_3]
+                    .map((tp, i) => ({ tp, i }))
+                    .filter(({ tp }) => visible(tp))
+                    .map(({ tp, i }) => (
+                      <g key={`tp${i}`}>
+                        <line className="ov-tp" x1={PAD_LEFT} x2={PAD_LEFT + plotW}
+                              y1={scale.y(tp as number)} y2={scale.y(tp as number)} />
+                        <text className="ov-label" style={{ fill: "var(--up)" }}
+                              x={PAD_LEFT + 3} y={scale.y(tp as number) - 3}>
+                          TP{i + 1} {(tp as number).toFixed(2)}
+                        </text>
+                      </g>
+                    ))}
+                </>
+              )}
+
+              {overlays.has("ema") && emas && (
+                <>
+                  <path className="ov-ema ov-ema20" d={linePath(emas.e20)} />
+                  <path className="ov-ema ov-ema50" d={linePath(emas.e50)} />
+                  {bars.length >= 200 && (
+                    <path className="ov-ema ov-ema200" d={linePath(emas.e200)} />
+                  )}
+                </>
+              )}
 
               {/* last price marker */}
               {last && (

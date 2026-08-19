@@ -46,7 +46,11 @@ async def collect_market_data() -> dict:
 
 
 async def run_analysis(
-    db: AsyncSession, user_id: int, *, persist: bool = True
+    db: AsyncSession,
+    user_id: int,
+    *,
+    persist: bool = True,
+    settings_row: RiskSettings | None = None,
 ) -> tuple[Signal | None, dict]:
     """Stages 1-3: data -> indicators -> AI -> persisted Signal.
 
@@ -60,7 +64,17 @@ async def run_analysis(
         await audit.record(db, audit.ANALYSIS_FAILED, {"error": str(e)}, user_id)
         raise
 
-    analysis, problems = await analyze(snapshot)
+    # The setup engine reads the user's minimums so the UI can explain a
+    # rejection. It never relaxes them, and risk_engine.evaluate still runs
+    # independently before anything is sent to the broker.
+    if settings_row is None:
+        settings_row = (
+            await db.execute(
+                select(RiskSettings).where(RiskSettings.user_id == user_id)
+            )
+        ).scalar_one_or_none()
+
+    analysis, problems = await analyze(snapshot, settings_row)
 
     if problems:
         await audit.record(
@@ -172,7 +186,7 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
         log.warning("bot: bridge unavailable for user %s: %s", user.id, e)
         return
 
-    signal, _ = await run_analysis(db, user.id)
+    signal, _ = await run_analysis(db, user.id, settings_row=row)
     if signal is None or signal.action == SignalAction.NO_TRADE:
         return
 
