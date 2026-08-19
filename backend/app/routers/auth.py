@@ -10,11 +10,58 @@ from .. import audit
 from ..config import settings
 from ..db import get_db
 from ..deps import current_user, login_rate_limit
-from ..models import RiskSettings, User
-from ..schemas import LoginRequest, TokenResponse, UserOut
-from ..security import create_access_token, verify_password
+from ..models import RiskSettings, User, UserRole
+from ..schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@router.post(
+    "/register",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register(
+    body: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    email = body.email.lower()
+
+    existing = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "An account with this email already exists",
+        )
+
+    try:
+        password_hash = hash_password(body.password)
+    except ValueError as e:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            str(e),
+        ) from e
+
+    user = User(
+        email=email,
+        password_hash=password_hash,
+        role=UserRole.CUSTOMER,
+        is_active=True,
+    )
+
+    db.add(user)
+    await db.flush()
+
+    db.add(RiskSettings(user_id=user.id))
+
+    await db.commit()
+    await db.refresh(user)
+
+    return user
 
 
 @router.post("/login", response_model=TokenResponse)

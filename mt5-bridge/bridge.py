@@ -330,12 +330,14 @@ async def get_positions(symbol: str | None = Query(default=None)) -> dict:
 async def get_history(days: int = Query(default=7, ge=1, le=365)) -> dict:
     ensure_connected()
     now = datetime.now(timezone.utc)
-    deals = mt5.history_deals_get(now - timedelta(days=days), now) or []
+    deals = mt5.history_deals_get(now - timedelta(days=days), now + timedelta(hours=2)) or []
     return {
         "deals": [
             {
                 "ticket": d.ticket,
                 "order": d.order,
+                "position_id": d.position_id,
+                "entry": d.entry,
                 "symbol": d.symbol,
                 "type": "BUY" if d.type == mt5.DEAL_TYPE_BUY else "SELL",
                 "volume": d.volume,
@@ -392,7 +394,7 @@ async def send_order(req: OrderRequest) -> dict:
         "magic": 20260817,
         "comment": req.comment[:31],
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": mt5.ORDER_FILLING_FOK,
     }
     if req.sl is not None:
         request["sl"] = float(req.sl)
@@ -447,7 +449,7 @@ async def close_position(req: CloseRequest) -> dict:
         "magic": 20260817,
         "comment": "close",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": mt5.ORDER_FILLING_FOK,
     }
 
     log.info("CLOSE REQUEST %s", request)
@@ -468,3 +470,5 @@ async def close_position(req: CloseRequest) -> dict:
 if __name__ == "__main__":
     log.info("bridge listening on %s:%s", BRIDGE_HOST, BRIDGE_PORT)
     uvicorn.run(app, host=BRIDGE_HOST, port=BRIDGE_PORT, log_level="info")
+
+

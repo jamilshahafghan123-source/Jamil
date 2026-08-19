@@ -56,22 +56,23 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   const refresh = useCallback(async () => {
     await guard(async () => {
-      const [d, r, s, o] = await Promise.all([
+      const [d, r, s, o, h] = await Promise.all([
         api.dashboard(),
         api.getRisk(),
         api.signals(1),
         api.orderLogs(25),
+        api.deals(7),
       ]);
       setSnap(d);
       setRisk(r);
       setOrders(o);
+      setDeals(h);
       if (s.length) setSignal(s[0]);
     });
   }, [guard]);
 
   useEffect(() => {
     void refresh();
-    void guard(async () => setDeals(await api.deals(7)));
   }, [refresh, guard]);
 
   // Live socket, with automatic reconnect.
@@ -202,6 +203,55 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   }
 
   const { account, tick, positions, status } = snap;
+
+  const sortedDeals = [...deals].sort(
+    (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()
+  );
+
+  // Match only FILLED AI orders to their real MT5 position IDs.
+  const filledAiOrders = orders.filter(
+    (o) => o.status === "FILLED" && o.broker_ticket !== null
+  );
+
+  const aiPositionIds = new Set<number>();
+
+  for (const order of filledAiOrders) {
+    const entryDeal = deals.find(
+      (d) => d.order === order.broker_ticket
+    );
+
+    if (entryDeal) {
+      aiPositionIds.add(entryDeal.position_id);
+    }
+  }
+
+  // Only MT5 deals belonging to positions opened by this AI.
+  const aiDeals = sortedDeals.filter(
+    (d) => aiPositionIds.has(d.position_id)
+  );
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const todayClosedDeals = aiDeals.filter(
+    (d) => d.time.slice(0, 10) === todayKey && d.entry === 1
+  );
+
+  const todayProfit = todayClosedDeals.reduce(
+    (sum, d) => sum + d.profit + d.commission + d.swap,
+    0
+  );
+
+  const aiOpenPositions = positions.filter(
+    (p) => aiPositionIds.has(p.ticket)
+  );
+
+  const liveProfit = aiOpenPositions.reduce(
+    (sum, p) => sum + p.profit,
+    0
+  );
+
+  const latestClosedDeal =
+    aiDeals.find((d) => d.entry === 1) ?? null;
   const currency = account?.currency ? `${account.currency} ` : "";
   const isLiveAccount = account?.trade_mode === "real";
 
@@ -379,13 +429,54 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
 
+        <div className="stats">
+          <Stat
+            label="Live Profit"
+            value={`${currency}${liveProfit.toFixed(2)}`}
+            tone={liveProfit >= 0 ? "up" : "down"}
+            sub={`${positions.length} open position${positions.length === 1 ? "" : "s"}`}
+          />
+
+          <Stat
+            label="Today's Realized Profit"
+            value={`${currency}${todayProfit.toFixed(2)}`}
+            tone={todayProfit >= 0 ? "up" : "down"}
+            sub={`${todayClosedDeals.length} closed profit/loss deals`}
+          />
+
+          <Stat
+            label="Latest Closed Trade"
+            value={
+              latestClosedDeal
+                ? `${latestClosedDeal.type} ${currency}${latestClosedDeal.profit.toFixed(2)}`
+                : "—"
+            }
+            tone={
+              !latestClosedDeal
+                ? undefined
+                : latestClosedDeal.profit >= 0
+                  ? "up"
+                  : "down"
+            }
+            sub={
+              latestClosedDeal
+                ? `${latestClosedDeal.symbol} - ${latestClosedDeal.volume.toFixed(2)} lots`
+                : "No closed trade yet"
+            }
+          />
+        </div>
+
         {/* ---- history ---- */}
         <div className="grid cols-2">
-          <Card title="Order log" flush>
-            <OrderHistory orders={orders} />
+          <Card title="AI filled orders" flush>
+            <OrderHistory orders={orders.filter((o) => o.status === "FILLED")} />
           </Card>
-          <Card title="Closed deals (7 days)" flush>
-            {deals.length ? <DealHistory deals={deals} /> : <Empty>No closed deals.</Empty>}
+          <Card title="AI closed deals (7 days)" flush>
+            {aiDeals.filter((d) => d.entry === 1).length ? (
+              <DealHistory deals={aiDeals.filter((d) => d.entry === 1).slice(0, 25)} />
+            ) : (
+              <Empty>No AI closed deals.</Empty>
+            )}
           </Card>
         </div>
       </main>
@@ -432,3 +523,13 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+

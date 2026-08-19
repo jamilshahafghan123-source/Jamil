@@ -39,6 +39,11 @@ class TradingMode(str, enum.Enum):
     REAL = "REAL"  # AI auto-executes on a live account. Gated hard.
 
 
+class UserRole(str, enum.Enum):
+    ADMIN = "ADMIN"
+    CUSTOMER = "CUSTOMER"
+
+
 class SignalAction(str, enum.Enum):
     BUY = "BUY"
     SELL = "SELL"
@@ -58,6 +63,9 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole), default=UserRole.CUSTOMER
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

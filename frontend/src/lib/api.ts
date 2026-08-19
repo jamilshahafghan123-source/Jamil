@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   Analysis,
   BarsResponse,
   DashboardSnapshot,
@@ -49,7 +49,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401) {
     auth.clear();
     window.dispatchEvent(new Event("auth:expired"));
-    throw new ApiError(401, "Session expired — please sign in again");
+    throw new ApiError(401, "Session expired â€” please sign in again");
   }
 
   if (!res.ok) {
@@ -71,11 +71,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  register: (email: string, password: string) =>
+    request<{ id: number; email: string; role: string; is_active: boolean }>(
+      "/api/auth/register",
+      {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      },
+    ),
+
   login: (email: string, password: string) =>
     request<{ access_token: string; expires_in: number }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+
+  me: () =>
+    request<{ id: number; email: string; role: string; is_active: boolean }>(
+      "/api/auth/me",
+    ),
 
   dashboard: () => request<DashboardSnapshot>("/api/dashboard"),
   deals: (days = 7) => request<Deal[]>(`/api/history/deals?days=${days}`),
@@ -90,7 +104,7 @@ export const api = {
   /**
    * OHLC candles for the chart, straight from MT5 via the bridge.
    *
-   * Auth is the shared Bearer flow in `request()` — no token or credential
+   * Auth is the shared Bearer flow in `request()` â€” no token or credential
    * is ever referenced here.
    *
    * NOTE ON `symbol`: the current backend derives the symbol from its own
@@ -166,18 +180,18 @@ export function liveSocketUrl(): string | null {
 
 export const fmt = {
   price: (n: number | null | undefined, digits = 2) =>
-    n == null ? "—" : n.toFixed(digits),
+    n == null ? "â€”" : n.toFixed(digits),
   money: (n: number | null | undefined, currency = "") =>
     n == null
-      ? "—"
+      ? "â€”"
       : `${n < 0 ? "-" : ""}${currency}${Math.abs(n).toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })}`,
   signed: (n: number | null | undefined) =>
-    n == null ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(2)}`,
+    n == null ? "â€”" : `${n > 0 ? "+" : ""}${n.toFixed(2)}`,
   time: (iso: string | null | undefined) =>
-    iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "—",
+    iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "â€”",
   datetime: (iso: string | null | undefined) =>
-    iso ? new Date(iso).toLocaleString([], { hour12: false }) : "—",
+    iso ? new Date(iso).toLocaleString([], { hour12: false }) : "â€”",
 };

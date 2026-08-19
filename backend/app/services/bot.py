@@ -126,6 +126,179 @@ async def run_analysis(
     return signal, analysis
 
 
+async def _manage_profitable_positions(
+    db: AsyncSession,
+    user: User,
+    signal: Signal | None,
+    settings_row: RiskSettings,
+) -> bool:
+    """Close profitable positions when the AI no longer supports holding them.
+
+    Returns True if at least one position was closed.  When that happens the
+    caller skips new entries for the remainder of the current bot cycle.
+    """
+    if settings_row.trading_mode not in (TradingMode.DEMO, TradingMode.REAL):
+        return False
+
+    try:
+        positions = await mt5.positions(settings.SYMBOL)
+    except BridgeError as e:
+        log.warning("profit manager: bridge unavailable for user %s: %s", user.id, e)
+        return False
+
+    if not positions:
+        return False
+
+    ai_action = signal.action.value if signal is not None else "NO_TRADE"
+    ai_confidence = int(signal.confidence or 0) if signal is not None else 0
+    closed_any = False
+
+    for position in positions:
+        profit = float(position.get("profit") or 0.0)
+
+        # Never use this profit-taking rule to close a losing trade.
+        if profit <= 0:
+            continue
+
+        side = str(position.get("type") or "").upper()
+        ticket = int(position["ticket"])
+
+        # Continue holding when the current AI analysis still strongly
+        # supports the direction of the existing trade.
+        still_strong = (
+            ai_action == side
+            and ai_confidence >= 65
+        )
+
+        if still_strong:
+            log.info(
+                "profit manager HOLD ticket=%s side=%s profit=%.2f ai=%s confidence=%s",
+                ticket,
+                side,
+                profit,
+                ai_action,
+                ai_confidence,
+            )
+            continue
+
+        reason = (
+            f"auto_profit_exit: profitable position no longer strongly "
+            f"supported; side={side}, ai={ai_action}, "
+            f"confidence={ai_confidence}, profit={profit:.2f}"
+        )
+
+        result = await executor.close_position(
+            db,
+            user_id=user.id,
+            ticket=ticket,
+            reason=reason,
+        )
+
+        if result.get("success"):
+            closed_any = True
+            log.warning(
+                "AUTO PROFIT CLOSE ticket=%s side=%s profit=%.2f ai=%s confidence=%s",
+                ticket,
+                side,
+                profit,
+                ai_action,
+                ai_confidence,
+            )
+        else:
+            log.warning(
+                "auto profit close failed ticket=%s result=%s",
+                ticket,
+                result,
+            )
+
+    return closed_any
+
+
+
+async def _manage_strong_reversal(
+    db: AsyncSession,
+    user: User,
+    signal,
+    settings_row: RiskSettings,
+) -> bool:
+    """Close an existing position when a strong opposite AI signal appears.
+
+    The bot does NOT open the opposite trade in the same cycle.  It waits
+    until the next cycle, re-runs analysis, and only enters if the opposite
+    setup is still valid.
+    """
+    if signal is None or signal.action == SignalAction.NO_TRADE:
+        return False
+
+    ai_action = signal.action.value
+    ai_confidence = int(signal.confidence or 0)
+    min_confidence = int(settings_row.min_confidence or 80)
+
+    if ai_confidence < min_confidence:
+        return False
+
+    try:
+        positions = await mt5.positions()
+    except BridgeError as e:
+        log.warning(
+            "reversal manager: bridge unavailable for user %s: %s",
+            user.id,
+            e,
+        )
+        return False
+
+    closed_any = False
+
+    for position in positions:
+        if str(position.get("symbol") or "") != settings.SYMBOL:
+            continue
+
+        side = str(position.get("type") or "").upper()
+
+        if side not in ("BUY", "SELL"):
+            continue
+
+        # Same direction: nothing to reverse.
+        if side == ai_action:
+            continue
+
+        ticket = int(position["ticket"])
+        profit = float(position.get("profit") or 0.0)
+
+        reason = (
+            f"strong_reversal: existing={side}, new={ai_action}, "
+            f"confidence={ai_confidence}, min={min_confidence}, "
+            f"profit={profit:.2f}"
+        )
+
+        result = await executor.close_position(
+            db,
+            user_id=user.id,
+            ticket=ticket,
+            reason=reason,
+        )
+
+        if result.get("success"):
+            closed_any = True
+            log.warning(
+                "STRONG REVERSAL CLOSE ticket=%s old=%s new=%s "
+                "confidence=%s profit=%.2f",
+                ticket,
+                side,
+                ai_action,
+                ai_confidence,
+                profit,
+            )
+        else:
+            log.warning(
+                "strong reversal close failed ticket=%s result=%s",
+                ticket,
+                result,
+            )
+
+    return closed_any
+
+
 async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     row = (
         await db.execute(select(RiskSettings).where(RiskSettings.user_id == user.id))
@@ -187,6 +360,32 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
         return
 
     signal, _ = await run_analysis(db, user.id, settings_row=row)
+
+    # Strong opposite signal: close the existing trade first.
+    # Wait until the next cycle and re-analyse before opening the reverse side.
+    if autonomous:
+        reversed_position = await _manage_strong_reversal(
+            db,
+            user,
+            signal,
+            row,
+        )
+        if reversed_position:
+            return
+
+    # Manage existing profitable positions before considering a new entry.
+    # If a profitable trade is closed, wait until the next bot cycle before
+    # considering another order.
+    if autonomous:
+        closed_profit = await _manage_profitable_positions(
+            db,
+            user,
+            signal,
+            row,
+        )
+        if closed_profit:
+            return
+
     if signal is None or signal.action == SignalAction.NO_TRADE:
         return
 

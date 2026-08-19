@@ -63,6 +63,8 @@ export interface Position {
 export interface Deal {
   ticket: number;
   order: number;
+  position_id: number;
+  entry: number;
   symbol: string;
   type: string;
   volume: number;
