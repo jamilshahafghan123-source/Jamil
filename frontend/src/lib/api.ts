@@ -1,11 +1,13 @@
 import type {
   Analysis,
+  BarsResponse,
   DashboardSnapshot,
   Deal,
   ExecutionResult,
   OrderLog,
   RiskSettings,
   Signal,
+  Timeframe,
   TradingMode,
 } from "./types";
 
@@ -84,6 +86,27 @@ export const api = {
       method: "POST",
     }),
   signals: (limit = 25) => request<Signal[]>(`/api/analysis/signals?limit=${limit}`),
+
+  /**
+   * OHLC candles for the chart, straight from MT5 via the bridge.
+   *
+   * Auth is the shared Bearer flow in `request()` — no token or credential
+   * is ever referenced here.
+   *
+   * NOTE ON `symbol`: the current backend derives the symbol from its own
+   * SYMBOL setting and ignores this query parameter. It is sent because the
+   * documented URL includes it and it is forward-compatible; always trust
+   * `response.symbol` for what was actually returned, never this argument.
+   *
+   * `signal` lets the caller abort an in-flight poll on unmount or when the
+   * timeframe changes, so slow responses cannot land out of order.
+   */
+  bars: (timeframe: Timeframe = "M5", count = 100, symbol = "XAUUSD", signal?: AbortSignal) =>
+    request<BarsResponse>(
+      `/api/analysis/bars?symbol=${encodeURIComponent(symbol)}` +
+        `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`,
+      { signal },
+    ),
   signalDetail: (id: number) =>
     request<{ signal: Signal; analysis: Analysis; market_snapshot: unknown }>(
       `/api/analysis/signals/${id}`,

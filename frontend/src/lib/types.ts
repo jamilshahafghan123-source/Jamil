@@ -24,6 +24,27 @@ export interface Tick {
   time: string;
 }
 
+/** Timeframes the MT5 bridge understands. */
+export type Timeframe = "M1" | "M5" | "M15" | "M30" | "H1" | "H4" | "D1";
+
+/** One OHLC candle, exactly as GET /api/analysis/bars returns it. */
+export interface Bar {
+  /** ISO-8601 UTC timestamp of the candle open, e.g. "2026-08-19T03:00:00+00:00". */
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  tick_volume: number;
+  spread: number;
+}
+
+export interface BarsResponse {
+  symbol: string;
+  timeframe: Timeframe;
+  bars: Bar[];
+}
+
 export interface Position {
   ticket: number;
   symbol: string;
