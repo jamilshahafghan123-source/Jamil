@@ -44,9 +44,18 @@ def test_rate_limit_receives_the_request_object():
     assert dep.body_params == []
 
 
-def test_request_annotation_actually_resolves():
+def test_request_parameter_is_typed_as_request():
+    """The `request` parameter must resolve to `Request`, however it is built.
+
+    Two shapes fix the original bug: a closure (what this repo uses), or a
+    callable class in a module without `from __future__ import annotations`.
+    Both are correct, so this inspects the underlying callable rather than
+    assuming one implementation — otherwise the test reports a false alarm
+    against a perfectly valid alternative.
+    """
     import inspect
     import typing
 
-    hints = typing.get_type_hints(rate_limit)
+    target = rate_limit if inspect.isfunction(rate_limit) else type(rate_limit).__call__
+    hints = typing.get_type_hints(target)
     assert hints.get("request") is Request
