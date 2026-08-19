@@ -31,6 +31,9 @@ from .mt5_client import BridgeError, mt5
 log = logging.getLogger("bot")
 
 _task: asyncio.Task | None = None
+# Users we've already explained the idleness for, so the reason is logged
+# once per state change instead of every cycle.
+_idle_logged: set[int] = set()
 
 
 async def collect_market_data() -> dict:
@@ -114,7 +117,21 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
         await db.execute(select(RiskSettings).where(RiskSettings.user_id == user.id))
     ).scalar_one_or_none()
     if row is None or not row.bot_enabled or row.emergency_stop:
+        # Log the reason once. A silently idle bot looks identical to a
+        # broken one, which is what makes this state so confusing.
+        if user.id not in _idle_logged:
+            reason = (
+                "no risk-settings row"
+                if row is None
+                else "emergency_stop engaged"
+                if row.emergency_stop
+                else "bot_enabled is false (enable it: POST /api/risk/bot)"
+            )
+            log.info("bot idle for user %s: %s", user.id, reason)
+            _idle_logged.add(user.id)
         return
+
+    _idle_logged.discard(user.id)
 
     # Autonomous execution is DEMO/REAL only. MANUAL still generates signals
     # for the dashboard; a human decides.

@@ -32,6 +32,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://mt5ai:mt5ai@db:5432/mt5ai
       PORT: "8080"
       # host.docker.internal reaches the Windows host from the container.
+      # This default applies ONLY when MT5_BRIDGE_URL is unset in .env —
+      # a value in .env overrides it. Check with: docker compose config
       MT5_BRIDGE_URL: ${MT5_BRIDGE_URL:-http://host.docker.internal:8100}
     depends_on:
       db:

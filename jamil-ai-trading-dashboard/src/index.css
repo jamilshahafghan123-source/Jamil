@@ -1,0 +1,170 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Jamil AI Trading — design tokens
+   A single dark trading theme. Colours are deliberately restrained so that
+   green/red P&L and the gold accent stay the loudest things on screen.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-base-950: #05070c;
+  --color-base-900: #080b12;
+  --color-base-850: #0b1018;
+  --color-base-800: #0f1520;
+  --color-base-750: #131a27;
+  --color-base-700: #1a2330;
+  --color-base-600: #26313f;
+
+  --color-ink-100: #eef2f9;
+  --color-ink-200: #c8d1e0;
+  --color-ink-300: #97a2b6;
+  --color-ink-400: #6c778c;
+  --color-ink-500: #4a5568;
+
+  --color-gold-300: #f2d49a;
+  --color-gold-400: #e5b45f;
+  --color-gold-500: #cf9a3c;
+  --color-gold-600: #a8792a;
+
+  --color-bull-400: #34d99b;
+  --color-bull-500: #21c98a;
+  --color-bull-600: #12a06c;
+
+  --color-bear-400: #ff7276;
+  --color-bear-500: #f2555a;
+  --color-bear-600: #c93b41;
+
+  --color-info-400: #5aa9ff;
+  --color-warn-400: #f5b544;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+
+  --radius-panel: 0.875rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-base-700);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--color-base-950);
+    background-image:
+      radial-gradient(1100px 520px at 12% -10%, rgba(229, 180, 95, 0.07), transparent 60%),
+      radial-gradient(900px 460px at 92% 0%, rgba(90, 169, 255, 0.06), transparent 62%);
+    background-attachment: fixed;
+    color: var(--color-ink-100);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-base-900);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-base-700);
+    border-radius: 9999px;
+    border: 2px solid var(--color-base-900);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-base-600);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold-400);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .panel {
+    background-color: color-mix(in oklab, var(--color-base-850) 92%, transparent);
+    border: 1px solid var(--color-base-700);
+    border-radius: var(--radius-panel);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.03) inset,
+      0 18px 40px -28px rgba(0, 0, 0, 0.9);
+  }
+
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .grid-lines {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+}
+
+/* Price flash animations for bid/ask updates. */
+@keyframes flash-up {
+  from {
+    background-color: color-mix(in oklab, var(--color-bull-500) 26%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-down {
+  from {
+    background-color: color-mix(in oklab, var(--color-bear-500) 26%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.flash-up {
+  animation: flash-up 620ms ease-out;
+}
+.flash-down {
+  animation: flash-down 620ms ease-out;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 0.75;
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+    opacity: 0;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    opacity: 0;
+  }
+}
+
+.pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up,
+  .flash-down,
+  .pulse-ring::after {
+    animation: none;
+  }
+}

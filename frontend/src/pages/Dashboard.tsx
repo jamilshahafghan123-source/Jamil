@@ -22,6 +22,7 @@ import {
   RiskPanel,
 } from "../components/Panels";
 import { SignalCard } from "../components/SignalCard";
+import { BarChart } from "../components/Bar";
 
 const REAL_CONFIRMATION = "I UNDERSTAND THE RISK OF REAL MONEY TRADING";
 
@@ -326,6 +327,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 spread={tick?.spread_points}
                 time={tick?.time}
               />
+              {/* Live XAUUSD candles, straight from MT5 via the backend. */}
+              <BarChart />
             </Card>
 
             <Card
