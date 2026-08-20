@@ -4,6 +4,7 @@ import { Brand } from "../components/Brand";
 import { NotificationBell } from "../components/NotificationBell";
 import type {
   AdminIncident,
+  AdminTicket,
   ComponentStatus,
   ControlCentre as ControlCentreData,
   RecoveryStatus,
@@ -92,6 +93,8 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
   const [result, setResult] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [stopPending, setStopPending] = useState(false);
+  const [tickets, setTickets] = useState<AdminTicket[]>([]);
+  const [showTickets, setShowTickets] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -124,6 +127,18 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     void loadIncidents();
   }, [loadIncidents]);
+
+  const loadTickets = useCallback(async () => {
+    try {
+      setTickets(await api.adminTickets());
+    } catch {
+      /* the summary counts above already report; the list stays empty */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showTickets) void loadTickets();
+  }, [showTickets, loadTickets]);
 
   async function runOperation(operation: string) {
     setBusy(true);
@@ -182,6 +197,216 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
           {result}
         </p>
       )}
+
+      {/* --------------------------------------------------- safe mode */}
+      <section className="jg-cc-section">
+        <div
+          className={
+            data?.safe_mode.active ? "jg-safebar active" : "jg-safebar"
+          }
+        >
+          <div className="jg-safebar-head">
+            <span className="jg-safebar-state">
+              {data?.safe_mode.active ? "SAFE MODE ACTIVE" : "SAFE MODE INACTIVE"}
+            </span>
+            <span className="jg-safebar-auto">
+              AI Auto {data?.safe_mode.active ? "paused" : "permitted"}
+            </span>
+          </div>
+          {data?.safe_mode.active ? (
+            <>
+              <ul className="jg-safebar-reasons">
+                {data.safe_mode.customer_messages.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+              <p className="jg-cc-note">
+                Affected:{" "}
+                {data.safe_mode.reasons
+                  .map((r) => r.replace(/_/g, " ").toLowerCase())
+                  .join(", ")}{" "}
+                · detected {when(data.generated_at)}
+              </p>
+            </>
+          ) : (
+            <p className="jg-cc-note">
+              No blocking condition detected. Automated trading may proceed.
+            </p>
+          )}
+          <p className="jg-safebar-rule">
+            Safe Mode blocks <strong>new</strong> automated trades. It never
+            closes an existing position.
+          </p>
+        </div>
+      </section>
+
+      {/* --------------------------------------------- bot / trading state */}
+      <section className="jg-cc-section">
+        <h2>Bot &amp; trading</h2>
+        <div className="jg-cc-grid">
+          <article className="jg-cc-card">
+            <div className="jg-cc-card-top">
+              <h3>Bot</h3>
+              <span
+                className={`jg-pill jg-pill-${
+                  (data?.trading.bots_enabled ?? 0) > 0 ? "ok" : "muted"
+                }`}
+              >
+                {(data?.trading.bots_enabled ?? 0) > 0 ? "RUNNING" : "STOPPED"}
+              </span>
+            </div>
+            <p className="jg-cc-detail">
+              {data?.trading.bots_enabled ?? 0} bot(s) enabled ·{" "}
+              {data?.trading.accounts_emergency_stopped ?? 0} account(s)
+              emergency-stopped
+            </p>
+            <p className="jg-cc-note">
+              Real trading{" "}
+              {data?.trading.real_trading_allowed_by_server
+                ? "allowed by server"
+                : "disabled"}
+            </p>
+          </article>
+
+          <article className="jg-cc-card jg-cc-signal">
+            <div className="jg-cc-card-top">
+              <h3>Latest signal</h3>
+              <span
+                className={`jg-pill jg-pill-${
+                  data?.bot.signal?.action === "NO_TRADE" ? "muted" : "ok"
+                }`}
+              >
+                {data?.bot.signal?.action?.replace(/_/g, " ") ?? "NONE"}
+              </span>
+            </div>
+            {data?.bot.signal ? (
+              <>
+                {/* Each gate beside its minimum, so a waiting bot reads as
+                    waiting rather than broken. */}
+                <Gate
+                  label="Confidence"
+                  value={`${data.bot.signal.confidence}%`}
+                  required={
+                    data.bot.signal.required_confidence != null
+                      ? `${data.bot.signal.required_confidence}%`
+                      : null
+                  }
+                  unmet={
+                    data.bot.signal.required_confidence != null &&
+                    data.bot.signal.confidence < data.bot.signal.required_confidence
+                  }
+                />
+                <Gate
+                  label="Risk / reward"
+                  value={data.bot.signal.rr != null ? String(data.bot.signal.rr) : "—"}
+                  required={
+                    data.bot.signal.required_rr != null
+                      ? String(data.bot.signal.required_rr)
+                      : null
+                  }
+                  unmet={
+                    data.bot.signal.rr != null &&
+                    data.bot.signal.required_rr != null &&
+                    data.bot.signal.rr < data.bot.signal.required_rr
+                  }
+                />
+                {data.bot.signal.risk_reasons.length > 0 && (
+                  <p className="jg-cc-note">
+                    Risk engine: {data.bot.signal.risk_reasons.join("; ")}
+                  </p>
+                )}
+                <p className="jg-cc-note">{when(data.bot.signal.created_at)}</p>
+              </>
+            ) : (
+              <p className="jg-cc-detail">No analysis has been produced yet.</p>
+            )}
+          </article>
+
+          <article className="jg-cc-card">
+            <div className="jg-cc-card-top">
+              <h3>Last execution error</h3>
+              <span
+                className={`jg-pill jg-pill-${
+                  data?.bot.last_execution_error ? "warn" : "muted"
+                }`}
+              >
+                {data?.bot.last_execution_error ? "PRESENT" : "NONE"}
+              </span>
+            </div>
+            {data?.bot.last_execution_error ? (
+              <p className="jg-cc-detail">
+                {data.bot.last_execution_error.status} on{" "}
+                {data.bot.last_execution_error.action}{" "}
+                {data.bot.last_execution_error.symbol} ·{" "}
+                {when(data.bot.last_execution_error.created_at)}
+              </p>
+            ) : (
+              <p className="jg-cc-detail">No failed orders recorded.</p>
+            )}
+          </article>
+
+          <article className="jg-cc-card">
+            <div className="jg-cc-card-top">
+              <h3>Support</h3>
+              <span
+                className={`jg-pill jg-pill-${
+                  (data?.support.needs_admin ?? 0) > 0 ? "warn" : "ok"
+                }`}
+              >
+                {data?.support.needs_admin ?? 0} NEEDS ADMIN
+              </span>
+            </div>
+            <p className="jg-cc-detail">
+              {data?.support.open ?? 0} open · {data?.support.urgent ?? 0} urgent
+              · {data?.support.resolved ?? 0} resolved
+            </p>
+            <button
+              type="button"
+              className="btn sm"
+              style={{ marginTop: 10 }}
+              onClick={() => setShowTickets((v) => !v)}
+            >
+              {showTickets ? "Hide tickets" : "View tickets"}
+            </button>
+          </article>
+        </div>
+
+        {showTickets && (
+          <ul className="jg-cc-incidents" style={{ marginTop: 12 }}>
+            {tickets.length === 0 && <li className="jg-cc-note">No tickets.</li>}
+            {tickets.map((t) => (
+              <li key={t.id}>
+                <details>
+                  <summary>
+                    <span className={`jg-pill jg-pill-${tone(t.status)}`}>
+                      {displayStatus(t.status)}
+                    </span>
+                    <span className="jg-inc-service">{t.subject}</span>
+                    <span className="jg-inc-cat">{t.category}</span>
+                    <span className="jg-inc-time">{when(t.created_at)}</span>
+                  </summary>
+                  <div className="jg-inc-body">
+                    <p>{t.ai_summary || "No summary."}</p>
+                    {t.status !== "RESOLVED" && (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={async () => {
+                          await api.adminResolveTicket(t.id);
+                          await loadTickets();
+                          await load();
+                        }}
+                      >
+                        Mark resolved
+                      </button>
+                    )}
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* ------------------------------------------------ system health */}
       <section className="jg-cc-section">
@@ -250,6 +475,20 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
                   <dd>{svc.has_automatic_repair ? "yes" : "no"}</dd>
                 </div>
               </dl>
+              {data?.recovery?.[name]?.last_incident ? (
+                <p className="jg-cc-note">
+                  Last incident #{data.recovery[name].last_incident!.id} ·{" "}
+                  {displayStatus(data.recovery[name].last_incident!.status)} ·{" "}
+                  {when(data.recovery[name].last_incident!.detected_at)}
+                  {data.recovery[name].last_incident!.recovered_at
+                    ? ` · recovered ${when(
+                        data.recovery[name].last_incident!.recovered_at,
+                      )}`
+                    : ""}
+                </p>
+              ) : (
+                <p className="jg-cc-note">No incidents recorded.</p>
+              )}
             </article>
           ))}
         </div>
@@ -388,6 +627,26 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
           busy={busy}
         />
       )}
+    </div>
+  );
+}
+
+function Gate({
+  label,
+  value,
+  required,
+  unmet,
+}: {
+  label: string;
+  value: string;
+  required: string | null;
+  unmet: boolean;
+}) {
+  return (
+    <div className={unmet ? "jg-metric unmet" : "jg-metric"}>
+      <span className="jg-metric-label">{label}</span>
+      <span className="jg-metric-value">{value}</span>
+      {required != null && <span className="jg-metric-req">req {required}</span>}
     </div>
   );
 }

@@ -68,7 +68,8 @@ async def env():
     app.dependency_overrides[get_db] = override_db
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as client:
-        yield {"client": client, "tokens": tokens, "incident_id": inc.id}
+        yield {"client": client, "tokens": tokens, "incident_id": inc.id,
+               "Session": Session, "customer_id": customer.id}
     app.dependency_overrides.clear()
     await engine.dispose()
 
@@ -228,3 +229,158 @@ async def test_customer_status_explains_a_pause_in_plain_language(env):
     if body["automated_trading"] == "PAUSED":
         assert body["reasons"]
         assert body["banner"] == "AUTOMATED TRADING TEMPORARILY PAUSED"
+
+
+# ------------------------------------------- control-centre summaries
+
+
+@pytest.mark.asyncio
+async def test_support_counts_are_real_not_placeholders(env):
+    """These were hard-coded zeros before; they now count actual rows."""
+    from app.models import (
+        SupportTicket,
+        TicketCategory,
+        TicketPriority,
+        TicketStatus,
+    )
+
+    client, admin = env["client"], _h(env["tokens"]["admin"])
+    async with env["Session"]() as db:
+        db.add_all([
+            SupportTicket(user_id=env["customer_id"], category=TicketCategory.TRADING,
+                          subject="a", description="a", ai_summary="",
+                          safe_diagnostics={}, priority=TicketPriority.CRITICAL,
+                          status=TicketStatus.NEEDS_ADMIN),
+            SupportTicket(user_id=env["customer_id"], category=TicketCategory.BROKER,
+                          subject="b", description="b", ai_summary="",
+                          safe_diagnostics={}, priority=TicketPriority.NORMAL,
+                          status=TicketStatus.OPEN),
+            SupportTicket(user_id=env["customer_id"], category=TicketCategory.AI,
+                          subject="c", description="c", ai_summary="",
+                          safe_diagnostics={}, priority=TicketPriority.NORMAL,
+                          status=TicketStatus.RESOLVED),
+        ])
+        await db.commit()
+
+    body = (await client.get("/api/admin/control-centre", headers=admin)).json()
+    assert body["support"]["needs_admin"] == 1
+    assert body["support"]["open"] == 1
+    assert body["support"]["resolved"] == 1
+    assert body["support"]["urgent"] == 1
+
+
+@pytest.mark.asyncio
+async def test_incident_counts_are_real(env):
+    body = (
+        await env["client"].get("/api/admin/control-centre",
+                                headers=_h(env["tokens"]["admin"]))
+    ).json()
+    assert body["incidents"]["needs_admin"] == 1
+    assert body["incidents"]["recovered"] == 0
+
+
+@pytest.mark.asyncio
+async def test_bot_summary_pairs_each_gate_with_its_minimum(env):
+    """Section 3: a waiting bot must read as waiting, not broken."""
+    from app.models import Signal, SignalAction
+
+    client, admin = env["client"], _h(env["tokens"]["admin"])
+    async with env["Session"]() as db:
+        db.add(Signal(user_id=env["customer_id"], symbol="XAUUSD", action=SignalAction.NO_TRADE,
+                      confidence=42, risk_reward=0.8, reason="structure unclear",
+                      risk_approved=False, risk_reasons=["confidence below minimum"]))
+        await db.commit()
+
+    body = (await client.get("/api/admin/control-centre", headers=admin)).json()
+    sig = body["bot"]["signal"]
+    assert sig["action"] == "NO_TRADE"
+    assert sig["confidence"] == 42
+    assert sig["rr"] == 0.8
+    # The minimums come from the signal owner's own risk settings.
+    assert sig["required_confidence"] == 70
+    assert sig["required_rr"] == 1.5
+    assert sig["risk_reasons"] == ["confidence below minimum"]
+
+
+@pytest.mark.asyncio
+async def test_bot_summary_with_no_signal_reports_none(env):
+    body = (
+        await env["client"].get("/api/admin/control-centre",
+                                headers=_h(env["tokens"]["admin"]))
+    ).json()
+    assert body["bot"]["signal"] is None
+    assert body["bot"]["last_execution_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_per_service_last_incident_is_reported(env):
+    body = (
+        await env["client"].get("/api/admin/control-centre",
+                                headers=_h(env["tokens"]["admin"]))
+    ).json()
+    bridge = body["recovery"]["BRIDGE"]
+    assert bridge["last_incident"] is not None
+    assert bridge["last_incident"]["status"] == "NEEDS_ADMIN"
+    assert body["recovery"]["FRONTEND"]["last_incident"] is None
+
+
+@pytest.mark.asyncio
+async def test_control_centre_exposes_no_secrets(env):
+    r = await env["client"].get("/api/admin/control-centre",
+                                headers=_h(env["tokens"]["admin"]))
+    blob = r.text.lower()
+    for word in ("token", "password", "jwt", "postgresql://", "api_key",
+                 "traceback", "127.0.0.1"):
+        assert word not in blob, f"control centre leaked {word!r}"
+
+
+@pytest.mark.asyncio
+async def test_customer_cannot_read_the_control_centre(env):
+    r = await env["client"].get("/api/admin/control-centre",
+                                headers=_h(env["tokens"]["customer"]))
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_there_is_no_customer_route_to_any_notification(env):
+    """Section 14: a customer must not reach a notification by any route.
+
+    Checked by enumerating the app rather than by guessing paths, so a route
+    added later without the gate fails this.
+    """
+    from app.deps import require_admin
+    from app.main import app
+
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if "notification" not in path:
+            continue
+        deps = set()
+        dependant = getattr(route, "dependant", None)
+        if dependant:
+            stack = list(dependant.dependencies)
+            while stack:
+                d = stack.pop()
+                deps.add(d.call)
+                stack.extend(d.dependencies)
+        assert require_admin in deps, f"{path} is not admin-gated"
+
+
+@pytest.mark.asyncio
+async def test_support_escalation_notifies_the_owner(env):
+    """Section 7's SUPPORT notification, and it must not quote the customer."""
+    from sqlalchemy import select
+
+    client = env["client"]
+    await client.post(
+        "/api/support/ask",
+        headers=_h(env["tokens"]["customer"]),
+        json={"question": "unanswerable zzzq my secret passphrase is hunter2"},
+    )
+    async with env["Session"]() as db:
+        rows = (await db.execute(select(Notification))).scalars().all()
+    support_notes = [n for n in rows if n.event == "support_needs_admin"]
+    assert support_notes, "escalation did not reach the notification centre"
+    assert support_notes[0].severity is NotificationSeverity.HIGH
+    # The customer's words are untrusted text; they belong in the ticket.
+    assert "hunter2" not in support_notes[0].message

@@ -22,6 +22,8 @@ from ..db import get_db
 from ..deps import current_user, require_admin
 from ..models import (
     AuditLog,
+    Notification,
+    NotificationSeverity,
     RiskSettings,
     SupportAuthor,
     SupportMessage,
@@ -187,6 +189,19 @@ async def ask(
                 user_id=user.id,
                 event="support_ticket_escalated",
                 detail={"category": result.category, "ticket_subject": ticket.subject},
+            )
+        )
+        # Reaches the owner's notification centre. The message names the
+        # category and ticket only — never the customer's words, which are
+        # untrusted text and belong in the ticket, not in an alert.
+        db.add(
+            Notification(
+                severity=NotificationSeverity.HIGH,
+                event="support_needs_admin",
+                message=(
+                    f"A {result.category} support ticket requires admin "
+                    f"attention (#{ticket.id})."
+                ),
             )
         )
         await db.commit()

@@ -1,5 +1,6 @@
 ﻿import type {
   AdminIncident,
+  AdminTicket,
   Analysis,
   BarsResponse,
   ControlCentre,
@@ -155,6 +156,26 @@ export const api = {
   adminMarkAllNotificationsRead: () =>
     request<{ marked: number }>("/api/admin/notifications/read-all", {
       method: "POST",
+    }),
+
+  adminTickets: (statusFilter?: string) =>
+    request<AdminTicket[]>(
+      `/api/admin/support/tickets${
+        statusFilter && statusFilter !== "ALL"
+          ? `?status_filter=${encodeURIComponent(statusFilter)}`
+          : ""
+      }`,
+    ),
+
+  adminResolveTicket: (id: number) =>
+    request<AdminTicket>(`/api/admin/support/tickets/${id}/resolve`, {
+      method: "POST",
+    }),
+
+  adminReplyTicket: (id: number, body: string) =>
+    request<AdminTicket>(`/api/admin/support/tickets/${id}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
     }),
 
   adminEmergencyStopAll: () =>

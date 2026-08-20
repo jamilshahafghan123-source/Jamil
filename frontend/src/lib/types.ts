@@ -361,8 +361,69 @@ export interface ControlCentre {
     accounts_emergency_stopped: number;
     real_trading_allowed_by_server: boolean;
   };
-  incidents: { open: number; recovered: number; failed_recoveries: number };
-  support: { needs_admin: number; open: number };
+  incidents: {
+    open: number;
+    recovering: number;
+    needs_admin: number;
+    recovered: number;
+    failed_recoveries: number;
+  };
+  support: {
+    open: number;
+    ai_handling: number;
+    needs_admin: number;
+    resolved: number;
+    urgent: number;
+  };
+  /** Why the bot is waiting, in numbers the operator can check. */
+  bot: {
+    signal: {
+      action: string;
+      confidence: number;
+      required_confidence: number | null;
+      rr: number | null;
+      required_rr: number | null;
+      reason: string;
+      risk_approved: boolean | null;
+      risk_reasons: string[];
+      executed: boolean;
+      created_at: string | null;
+    } | null;
+    last_execution_error: {
+      status: string;
+      action: string;
+      symbol: string;
+      created_at: string | null;
+    } | null;
+  };
+  recovery: Record<
+    string,
+    {
+      state: string;
+      last_incident: {
+        id: number;
+        status: string;
+        category: string;
+        detected_at: string | null;
+        recovered_at: string | null;
+        final_state: string;
+      } | null;
+    }
+  >;
+}
+
+export interface AdminTicket {
+  id: number;
+  category: string;
+  subject: string;
+  description: string;
+  ai_summary: string;
+  safe_diagnostics: Record<string, unknown>;
+  priority: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
 }
 
 export interface RecoveryService {

@@ -24,6 +24,12 @@ from ..db import get_db
 from ..deps import require_admin
 from ..models import (
     AuditLog,
+    OrderLog,
+    OrderStatus,
+    Signal,
+    SupportTicket,
+    TicketPriority,
+    TicketStatus,
     Incident,
     IncidentStatus,
     Notification,
@@ -144,6 +150,21 @@ async def control_centre(
         database_healthy=bool(await _db_ok(db)),
     )
 
+    # Latest incident per service, for the "last incident / last recovery
+    # result" line each status card shows.
+    recent_incidents = (
+        (
+            await db.execute(
+                select(Incident).order_by(Incident.id.desc()).limit(100)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    last_incident_by_service: dict[str, Incident] = {}
+    for row in recent_incidents:
+        last_incident_by_service.setdefault(row.service, row)
+
     total_users = await db.scalar(select(func.count()).select_from(User)) or 0
     admins = (
         await db.scalar(
@@ -189,9 +210,141 @@ async def control_centre(
             "accounts_emergency_stopped": stopped,
             "real_trading_allowed_by_server": _real_allowed(),
         },
-        # Present so the panel has a stable shape before the systems exist.
-        "incidents": {"open": 0, "recovered": 0, "failed_recoveries": 0},
-        "support": {"needs_admin": 0, "open": 0},
+        "incidents": await _incident_counts(db),
+        "support": await _support_counts(db),
+        "bot": await _bot_summary(db),
+        "recovery": {
+            service.value: {
+                "state": recovery_svc.planner.state_of(service).value,
+                "last_incident": _incident_brief(
+                    last_incident_by_service.get(service.value)
+                ),
+            }
+            for service in recovery_svc.Service
+        },
+    }
+
+
+async def _incident_counts(db: AsyncSession) -> dict:
+    async def count(*where) -> int:
+        return await db.scalar(
+            select(func.count()).select_from(Incident).where(*where)
+        ) or 0
+
+    return {
+        "open": await count(Incident.status == IncidentStatus.OPEN),
+        "recovering": await count(Incident.status == IncidentStatus.RECOVERING),
+        "needs_admin": await count(Incident.status == IncidentStatus.NEEDS_ADMIN),
+        "recovered": await count(Incident.status == IncidentStatus.RECOVERED),
+        "failed_recoveries": await count(Incident.status == IncidentStatus.FAILED),
+    }
+
+
+async def _support_counts(db: AsyncSession) -> dict:
+    """Real counts, read from the existing ticket table (section 9).
+
+    Nothing is duplicated here: this is a count over the same rows the admin
+    support view lists.
+    """
+
+    async def count(*where) -> int:
+        return await db.scalar(
+            select(func.count()).select_from(SupportTicket).where(*where)
+        ) or 0
+
+    return {
+        "open": await count(SupportTicket.status == TicketStatus.OPEN),
+        "ai_handling": await count(SupportTicket.status == TicketStatus.AI_HANDLING),
+        "needs_admin": await count(SupportTicket.status == TicketStatus.NEEDS_ADMIN),
+        "resolved": await count(SupportTicket.status == TicketStatus.RESOLVED),
+        "urgent": await count(
+            SupportTicket.priority.in_(
+                [TicketPriority.HIGH, TicketPriority.CRITICAL]
+            ),
+            SupportTicket.status != TicketStatus.RESOLVED,
+        ),
+    }
+
+
+async def _bot_summary(db: AsyncSession) -> dict:
+    """Why the bot is waiting, in the numbers section 3 asks for.
+
+    The point is to make a *waiting* bot legible as waiting rather than
+    broken: each gate is reported with the live value beside its configured
+    minimum, so an operator can see which one is unmet.
+    """
+    signal = (
+        await db.execute(select(Signal).order_by(Signal.id.desc()).limit(1))
+    ).scalar_one_or_none()
+
+    settings_row = None
+    if signal is not None:
+        settings_row = (
+            await db.execute(
+                select(RiskSettings).where(RiskSettings.user_id == signal.user_id)
+            )
+        ).scalar_one_or_none()
+
+    failed = (
+        await db.execute(
+            select(OrderLog)
+            .where(OrderLog.status.in_([OrderStatus.ERROR, OrderStatus.REJECTED]))
+            .order_by(OrderLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    return {
+        "signal": (
+            {
+                "action": signal.action.value,
+                "confidence": signal.confidence,
+                "required_confidence": (
+                    settings_row.min_confidence if settings_row else None
+                ),
+                "rr": signal.risk_reward,
+                "required_rr": settings_row.min_rr if settings_row else None,
+                "reason": (signal.reason or "")[:400],
+                "risk_approved": signal.risk_approved,
+                # Why the risk engine blocked it, if it did.
+                "risk_reasons": signal.risk_reasons or [],
+                "executed": signal.executed,
+                "created_at": (
+                    signal.created_at.isoformat() if signal.created_at else None
+                ),
+            }
+            if signal is not None
+            else None
+        ),
+        "last_execution_error": (
+            {
+                "status": failed.status.value,
+                "action": failed.action.value,
+                "symbol": failed.symbol,
+                "created_at": (
+                    failed.created_at.isoformat() if failed.created_at else None
+                ),
+            }
+            if failed is not None
+            else None
+        ),
+    }
+
+
+def _incident_brief(incident: Incident | None) -> dict | None:
+    if incident is None:
+        return None
+    return {
+        "id": incident.id,
+        "status": incident.status.value,
+        "category": incident.category,
+        "detected_at": (
+            incident.detected_at.isoformat() if incident.detected_at else None
+        ),
+        "recovered_at": (
+            incident.recovered_at.isoformat() if incident.recovered_at else None
+        ),
+        "final_state": incident.final_state,
     }
 
 
@@ -545,6 +698,22 @@ async def set_subscription(
     row.current_period_end = (
         datetime.now(timezone.utc) + timedelta(days=body.days) if body.days else None
     )
+
+    if body.status in (
+        SubscriptionStatus.PAST_DUE,
+        SubscriptionStatus.EXPIRED,
+        SubscriptionStatus.CANCELED,
+    ):
+        db.add(
+            Notification(
+                severity=NotificationSeverity.WARNING,
+                event="subscription_attention",
+                message=(
+                    f"Customer entitlement for account #{user_id} is now "
+                    f"{body.status.value} and requires attention."
+                ),
+            )
+        )
 
     db.add(
         AuditLog(
