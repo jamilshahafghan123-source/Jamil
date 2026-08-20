@@ -9,6 +9,8 @@ import {
   macd,
   rsi,
   sma,
+  tickVolume,
+  tickVolumeAverage,
   vwap,
   type IndicatorConfig,
   type IndicatorKind,
@@ -43,7 +45,7 @@ const PALETTE: Record<IndicatorKind, string> = {
 };
 
 const AVAILABLE: IndicatorKind[] = [
-  "SMA", "EMA", "BOLLINGER", "VWAP", "RSI", "MACD", "ATR",
+  "SMA", "EMA", "BOLLINGER", "VWAP", "RSI", "MACD", "ATR", "VOLUME",
 ];
 
 let nextId = 1;
@@ -103,6 +105,21 @@ export function useIndicators(bars: Bar[]) {
           label: "MACD hist",
           value: hist != null ? hist.toFixed(2) : "—",
           note: hist == null ? "warming up" : hist > 0 ? "above signal" : "below signal",
+        });
+      } else if (config.kind === "VOLUME") {
+        const value = latest(tickVolume(bars));
+        const average = latest(tickVolumeAverage(bars, config.period));
+        // The ratio is the readable part; a bare tick count says little.
+        const ratio = value != null && average ? value / average : null;
+        out.push({
+          id: config.id,
+          label: `Tick volume (${config.period})`,
+          value: value != null ? Math.round(value).toLocaleString() : "—",
+          note:
+            ratio == null ? "warming up"
+              : ratio >= 1.5 ? `${ratio.toFixed(1)}x average — active`
+              : ratio <= 0.5 ? `${ratio.toFixed(1)}x average — quiet`
+              : `${ratio.toFixed(1)}x average`,
         });
       } else if (config.kind === "ATR") {
         const value = latest(atr(bars, config.period));

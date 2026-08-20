@@ -195,6 +195,33 @@ export function vwap(bars: Bar[]): Series {
   return out;
 }
 
+/**
+ * Tick volume, and its own moving average.
+ *
+ * MT5 reports tick volume — the number of price changes in the bar — not
+ * traded contracts, because a retail forex/metals feed has no access to
+ * exchange volume. It is a real measure of activity and is labelled as tick
+ * volume everywhere it is shown, rather than being passed off as turnover.
+ *
+ * The average is what makes it readable: a raw count means little on its
+ * own, but "this bar is running at twice its recent average" does.
+ */
+export function tickVolume(bars: Bar[]): Series {
+  return bars.map((bar) => bar.tick_volume ?? null);
+}
+
+export function tickVolumeAverage(bars: Bar[], period = 20): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  if (period <= 0) return out;
+  let running = 0;
+  for (let i = 0; i < bars.length; i++) {
+    running += bars[i].tick_volume ?? 0;
+    if (i >= period) running -= bars[i - period].tick_volume ?? 0;
+    if (i >= period - 1) out[i] = running / period;
+  }
+  return out;
+}
+
 export type IndicatorKind =
   | "SMA"
   | "EMA"
@@ -228,7 +255,7 @@ export const DEFAULT_PERIOD: Record<IndicatorKind, number> = {
   RSI: 14,
   MACD: 12,
   ATR: 14,
-  VOLUME: 0,
+  VOLUME: 20,
 };
 
 /** Last non-null value of a series, for the readout strip. */
