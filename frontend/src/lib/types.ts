@@ -474,3 +474,62 @@ export interface NotificationFeed {
   channels: Record<string, string>;
   notifications: AdminNotification[];
 }
+
+/* ------------------------------------------------------- admin security
+ * Note what these types cannot carry: there is no field for a secret
+ * value anywhere. The backend sends SET / MISSING and nothing else, and
+ * a value-shaped field appearing here would be a review flag.
+ */
+
+export interface AdminBackup {
+  id: number;
+  filename: string;
+  status: "CREATED" | "FAILED" | "VERIFIED" | "RESTORE_TESTED";
+  size_bytes: number;
+  created_at: string;
+  verified_at: string | null;
+  detail: string;
+  app_version: string;
+  has_checksum: boolean;
+}
+
+export interface ChecklistItem {
+  key: string;
+  title: string;
+  state: "PASS" | "FAIL" | "MANUAL";
+  detail: string;
+}
+
+export interface SecurityOverview {
+  /** Presence only — SET or MISSING, never a value. */
+  secrets: Record<string, "SET" | "MISSING">;
+  version: {
+    version: string;
+    commit: string;
+    last_known_good: string;
+    environment: string;
+  };
+  deployment_readiness: {
+    status: "READY" | "NOT_READY";
+    blocking: string[];
+    warnings: string[];
+  };
+  recent_failed_logins: number;
+  admin_accounts: number;
+  restore_enabled_on_host: boolean;
+  maintenance: {
+    active: boolean;
+    reason: string;
+    since: string | null;
+    detail: string;
+  };
+  mfa: { provider: string; status: string; detail: string };
+  latest_backup: AdminBackup | null;
+  launch_checklist: {
+    ready: boolean;
+    failed: number;
+    manual_outstanding: number;
+    items: ChecklistItem[];
+    note: string;
+  };
+}

@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { Brand } from "../components/Brand";
 import { NotificationBell } from "../components/NotificationBell";
+import { BackupPanel } from "../components/BackupPanel";
+import { SecurityPanel } from "../components/SecurityPanel";
 import type {
   AdminIncident,
+  SecurityOverview,
   AdminTicket,
   ComponentStatus,
   ControlCentre as ControlCentreData,
@@ -94,16 +97,19 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
   const [pending, setPending] = useState<Pending>(null);
   const [stopPending, setStopPending] = useState(false);
   const [tickets, setTickets] = useState<AdminTicket[]>([]);
+  const [security, setSecurity] = useState<SecurityOverview | null>(null);
   const [showTickets, setShowTickets] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [cc, rec] = await Promise.all([
+      const [cc, rec, sec] = await Promise.all([
         api.adminControlCentre(),
         api.adminRecovery(),
+        api.adminSecurity(),
       ]);
       setData(cc);
       setRecovery(rec);
+      setSecurity(sec);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load status");
@@ -196,6 +202,28 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
         <p className="jg-cc-result" role="status">
           {result}
         </p>
+      )}
+
+      {security?.maintenance.active && (
+        <section className="jg-cc-section">
+          <div className="jg-maint">
+            <strong>MAINTENANCE MODE</strong>
+            <ul>
+              <li>New automated trading and new orders are blocked.</li>
+              <li>
+                Open positions are <em>not</em> closed and can still be closed
+                manually.
+              </li>
+              <li>Admin diagnostics and support remain available.</li>
+            </ul>
+            <p className="jg-cc-note">
+              {security.maintenance.reason}
+              {security.maintenance.since
+                ? ` · since ${when(security.maintenance.since)}`
+                : ""}
+            </p>
+          </div>
+        </section>
       )}
 
       {/* --------------------------------------------------- safe mode */}
@@ -548,6 +576,13 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
           </button>
         </div>
       </section>
+
+      <BackupPanel
+        restoreEnabled={security?.restore_enabled_on_host ?? false}
+        onChanged={() => void load()}
+      />
+
+      <SecurityPanel data={security} />
 
       {/* ----------------------------------------------------- incidents */}
       <section className="jg-cc-section">

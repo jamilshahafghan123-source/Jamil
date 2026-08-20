@@ -1,4 +1,5 @@
 ﻿import type {
+  AdminBackup,
   AdminIncident,
   AdminTicket,
   Analysis,
@@ -11,6 +12,7 @@
   OrderLog,
   RecoveryStatus,
   RiskSettings,
+  SecurityOverview,
   Signal,
   Timeframe,
   TradingMode,
@@ -176,6 +178,28 @@ export const api = {
     request<AdminTicket>(`/api/admin/support/tickets/${id}/reply`, {
       method: "POST",
       body: JSON.stringify({ body }),
+    }),
+
+  adminSecurity: () => request<SecurityOverview>("/api/admin/security"),
+
+  adminBackups: () => request<AdminBackup[]>("/api/admin/backups"),
+
+  adminCreateBackup: () =>
+    request<AdminBackup>("/api/admin/backups", { method: "POST" }),
+
+  adminVerifyBackup: (id: number) =>
+    request<AdminBackup>(`/api/admin/backups/${id}/verify`, { method: "POST" }),
+
+  /** Restore names a registry id. There is deliberately no path parameter. */
+  adminRestoreBackup: (backupId: number) =>
+    request<{
+      ok: boolean;
+      post_restore_healthy: boolean;
+      maintenance_active: boolean;
+      detail: string;
+    }>("/api/admin/backups/restore", {
+      method: "POST",
+      body: JSON.stringify({ backup_id: backupId, confirm: true }),
     }),
 
   adminEmergencyStopAll: () =>

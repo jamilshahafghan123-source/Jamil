@@ -168,6 +168,11 @@ class BackupOut(BaseModel):
     created_at: datetime
     verified_at: datetime | None
     detail: str
+    #: Which build produced it. Restoring across versions is a decision.
+    app_version: str
+    #: Presence only. The value would be noise in a panel and is available
+    #: to verification, which is what actually compares it.
+    has_checksum: bool
 
 
 class RestoreIn(BaseModel):
@@ -182,6 +187,8 @@ def _out(row: BackupRecord) -> BackupOut:
         id=row.id, filename=row.filename, status=row.status.value,
         size_bytes=row.size_bytes, created_at=row.created_at,
         verified_at=row.verified_at, detail=row.detail,
+        app_version=row.app_version or "unknown",
+        has_checksum=bool(row.checksum),
     )
 
 
