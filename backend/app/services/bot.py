@@ -23,7 +23,7 @@ from .. import audit
 from ..config import settings
 from ..db import SessionLocal
 from ..models import RiskSettings, Signal, SignalAction, TradingMode, User
-from . import executor, risk_engine, safe_mode
+from . import executor, maintenance, risk_engine, safe_mode
 from .analyst import analyze
 from .indicators import TIMEFRAMES, build_snapshot
 from .mt5_client import BridgeError, mt5
@@ -384,6 +384,15 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             return
     except BridgeError as e:
         log.warning("bot: bridge unavailable for user %s: %s", user.id, e)
+        return
+
+    # MAINTENANCE. Same rule as safe mode: stop opening, close nothing.
+    window = maintenance.current()
+    if window.blocks_automated_trading:
+        if _safe_mode_logged.get(user.id) != ("MAINTENANCE",):
+            log.warning("bot paused for user %s: maintenance (%s)",
+                        user.id, window.reason)
+            _safe_mode_logged[user.id] = ("MAINTENANCE",)
         return
 
     # SAFE MODE. Nothing automated proceeds on state the platform cannot

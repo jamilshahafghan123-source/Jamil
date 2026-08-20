@@ -21,6 +21,7 @@ is present, non-empty, and starts with the bytes pg_dump actually writes.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -54,6 +55,23 @@ class BackupOutcome:
     filename: str
     size_bytes: int
     detail: str
+    #: SHA-256 of the artefact, when one was produced.
+    checksum: str = ""
+
+
+def checksum_of(path: Path) -> str:
+    """Streamed, so a large dump does not have to fit in memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def database_name() -> str:
+    """The database name alone. Never the DSN, never credentials."""
+    url = urlparse(settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
+    return (url.path or "/").lstrip("/") or "postgres"
 
 
 def new_filename(now: datetime | None = None) -> str:
@@ -130,7 +148,7 @@ async def create(filename: str | None = None) -> BackupOutcome:
     size = target.stat().st_size if target.exists() else 0
     if size == 0:
         return BackupOutcome(False, name, 0, "pg_dump produced an empty file.")
-    return BackupOutcome(True, name, size, "Backup written.")
+    return BackupOutcome(True, name, size, "Backup written.", checksum_of(target))
 
 
 def verify(filename: str) -> BackupOutcome:
@@ -151,7 +169,26 @@ def verify(filename: str) -> BackupOutcome:
         return BackupOutcome(
             False, filename, size, "File is not a PostgreSQL custom-format dump."
         )
-    return BackupOutcome(True, filename, size, "Backup verified.")
+    return BackupOutcome(True, filename, size, "Backup verified.", checksum_of(path))
+
+
+def verify_against(filename: str, expected_checksum: str) -> BackupOutcome:
+    """Verify, and prove the bytes are the ones originally written.
+
+    Presence and format say the file is a dump. Only the checksum says it is
+    *this* dump, unmodified since it was taken.
+    """
+    result = verify(filename)
+    if not result.ok or not expected_checksum:
+        return result
+    if result.checksum != expected_checksum:
+        return BackupOutcome(
+            False, filename, result.size_bytes,
+            "Checksum does not match the value recorded when the backup was "
+            "taken; the file has changed.",
+            result.checksum,
+        )
+    return result
 
 
 async def restore(filename: str, *, confirmed: bool) -> BackupOutcome:

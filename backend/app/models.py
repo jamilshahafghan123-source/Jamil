@@ -464,6 +464,14 @@ class BackupRecord(Base):
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: SHA-256 of the artefact, so a later verification can prove the file
+    #: is the same bytes that were written rather than merely present.
+    checksum: Mapped[str] = mapped_column(String(64), default="")
+    #: Which build produced it. A restore across versions is a decision, not
+    #: an accident, so the version travels with the backup.
+    app_version: Mapped[str] = mapped_column(String(64), default="unknown")
+    #: Which database it came from. Never a DSN — name only.
+    database_name: Mapped[str] = mapped_column(String(64), default="")
     #: Operator-facing. Never a command line, never a credential.
     detail: Mapped[str] = mapped_column(Text, default="")
     created_by_user_id: Mapped[int | None] = mapped_column(

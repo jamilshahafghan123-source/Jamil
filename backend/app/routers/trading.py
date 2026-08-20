@@ -19,7 +19,7 @@ from ..deps import (
 )
 from ..models import RiskSettings, Signal, SignalAction, User
 from ..schemas import ClosePositionRequest, ManualOrderRequest
-from ..services import executor
+from ..services import executor, maintenance
 
 router = APIRouter(
     prefix="/api/trading",
@@ -30,6 +30,19 @@ router = APIRouter(
 )
 
 
+def _refuse_if_maintenance() -> None:
+    """Block opening a new position during a maintenance window.
+
+    Closing is deliberately still permitted — a maintenance window must not
+    trap someone in a trade. See services/maintenance.py.
+    """
+    window = maintenance.current()
+    if window.blocks_new_broker_execution:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, maintenance.CUSTOMER_MESSAGE
+        )
+
+
 @router.post("/execute")
 async def execute_signal(
     body: ManualOrderRequest,
@@ -38,6 +51,7 @@ async def execute_signal(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Human accepts a signal. Still fully risk-checked and size-capped."""
+    _refuse_if_maintenance()
     sig = await db.get(Signal, body.signal_id)
     if sig is None or sig.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Signal not found")

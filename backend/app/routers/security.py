@@ -32,6 +32,10 @@ from ..models import (
     AuditLog,
     BackupRecord,
     BackupStatus,
+    Incident,
+    IncidentStatus,
+    Notification,
+    NotificationSeverity,
     PasswordResetToken,
     User,
     UserRole,
@@ -39,6 +43,8 @@ from ..models import (
 from ..security import hash_password
 from ..services import backup as backup_svc
 from ..services import deployment as deployment_svc
+from ..services import launch_checklist as checklist_svc
+from ..services import maintenance as maintenance_svc
 from ..services import secrets as secrets_svc
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -201,6 +207,9 @@ async def create_backup(
         filename=outcome.filename,
         status=BackupStatus.CREATED if outcome.ok else BackupStatus.FAILED,
         size_bytes=outcome.size_bytes,
+        checksum=outcome.checksum,
+        app_version=deployment_svc.version_info()["version"],
+        database_name=backup_svc.database_name(),
         detail=secrets_svc.redact(outcome.detail)[:500],
         created_by_user_id=admin.id,
     )
@@ -226,7 +235,7 @@ async def verify_backup(
     row = await db.get(BackupRecord, backup_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    outcome = backup_svc.verify(row.filename)
+    outcome = backup_svc.verify_against(row.filename, row.checksum)
     row.status = BackupStatus.VERIFIED if outcome.ok else BackupStatus.FAILED
     row.detail = secrets_svc.redact(outcome.detail)[:500]
     row.size_bytes = outcome.size_bytes or row.size_bytes
@@ -263,16 +272,68 @@ async def restore_backup(
     )
     await db.commit()
 
-    outcome = await backup_svc.restore(row.filename, confirmed=body.confirm)
+    # Enter maintenance for the window. This stops new automated trades and
+    # new opening orders; it closes nothing, and closing stays permitted.
+    maintenance_svc.enter("Database restore", detail=f"backup #{row.id}")
+    try:
+        outcome = await backup_svc.restore(row.filename, confirmed=body.confirm)
+        # Post-restore health. A restore that "succeeded" into a database we
+        # cannot then query has not succeeded.
+        healthy = False
+        if outcome.ok:
+            try:
+                await db.execute(select(BackupRecord.id).limit(1))
+                healthy = True
+            except Exception:  # noqa: BLE001 - reported, never raised outward
+                healthy = False
+    finally:
+        # Leave maintenance only when the restore is verifiably good. A
+        # failed or unverified restore stays in maintenance rather than
+        # silently resuming execution against a database nobody has checked.
+        if outcome.ok and healthy:
+            maintenance_svc.exit_(detail="Restore verified.")
 
     db.add(
         AuditLog(user_id=admin.id, event=audit.RESTORE_RESULT,
-                 detail={"backup_id": row.id, "ok": outcome.ok})
+                 detail={"backup_id": row.id, "ok": outcome.ok,
+                         "post_restore_healthy": healthy})
     )
-    if outcome.ok:
+
+    if outcome.ok and healthy:
         row.status = BackupStatus.RESTORE_TESTED
+    else:
+        # A failed restore stays visible as an incident, not just a response.
+        db.add(
+            Incident(
+                service="DATABASE",
+                category="RESTORE_FAILED",
+                status=IncidentStatus.NEEDS_ADMIN,
+                original_state="RESTORE_REQUESTED",
+                final_state="NEEDS_ADMIN",
+                attempt_number=1,
+                actions=[{"operation": "RESTORE", "ok": False,
+                          "detail": secrets_svc.redact(outcome.detail)[:300]}],
+                detail=secrets_svc.redact(outcome.detail)[:500],
+            )
+        )
+        db.add(
+            Notification(
+                severity=NotificationSeverity.CRITICAL,
+                event="restore_failed",
+                message=(
+                    f"Database restore from backup #{row.id} did not complete "
+                    "successfully. The platform remains in maintenance and "
+                    "automated trading is paused."
+                ),
+            )
+        )
     await db.commit()
-    return {"ok": outcome.ok, "detail": secrets_svc.redact(outcome.detail)[:500]}
+    return {
+        "ok": outcome.ok and healthy,
+        "post_restore_healthy": healthy,
+        "maintenance_active": maintenance_svc.current().active,
+        "detail": secrets_svc.redact(outcome.detail)[:500],
+    }
 
 
 @admin_router.get("/security")
@@ -322,6 +383,7 @@ async def security_overview(
         "recent_failed_logins": len(failed),
         "admin_accounts": len(admins),
         "restore_enabled_on_host": backup_svc.RESTORE_ENABLED,
+        "maintenance": maintenance_svc.current().as_dict(),
         "mfa": {
             # An honest boundary rather than a fake feature.
             "provider": "NONE",
@@ -330,4 +392,9 @@ async def security_overview(
                       "nothing is enforced.",
         },
         "latest_backup": _out(latest_backup).model_dump() if latest_backup else None,
+        "launch_checklist": checklist_svc.evaluate(
+            backup_verified=latest_backup is not None
+            and latest_backup.status
+            in (BackupStatus.VERIFIED, BackupStatus.RESTORE_TESTED)
+        ),
     }

@@ -92,6 +92,10 @@ async def login(
         await db.commit()
 
     await audit.record(db, audit.LOGIN_SUCCESS, {"email": user.email}, user.id)
+    if user.role is UserRole.ADMIN:
+        # Recorded separately so an operator can see owner access without
+        # reading it out of every customer login.
+        await audit.record(db, audit.ADMIN_LOGIN, {"email": user.email}, user.id)
 
     return TokenResponse(
         access_token=create_access_token(str(user.id), {"email": user.email}),

@@ -435,3 +435,133 @@ async def test_hsts_is_not_sent_in_development(env):
 async def test_health_still_works_behind_the_middleware(env):
     r = await env["client"].get("/health")
     assert r.status_code == 200
+
+
+# ------------------------------------------- checksum, version, checklist
+
+
+def test_checksum_detects_a_modified_backup(tmp_path, monkeypatch):
+    """Presence and format say it is *a* dump. Only the checksum says it is
+    *this* dump, unmodified since it was taken."""
+    monkeypatch.setattr(backup_svc, "BACKUP_DIR", tmp_path)
+    name = backup_svc.new_filename()
+    (tmp_path / name).write_bytes(b"PGDMP" + b"\x00" * 64)
+
+    original = backup_svc.verify(name)
+    assert original.ok is True
+    assert len(original.checksum) == 64
+    assert backup_svc.verify_against(name, original.checksum).ok is True
+
+    (tmp_path / name).write_bytes(b"PGDMP" + b"\x01" * 64)
+    tampered = backup_svc.verify_against(name, original.checksum)
+    assert tampered.ok is False
+    assert "checksum" in tampered.detail.lower()
+
+
+def test_database_name_is_a_name_not_a_dsn():
+    from app.config import settings
+
+    name = backup_svc.database_name()
+    assert "://" not in name
+    assert "@" not in name
+    assert settings.DATABASE_URL not in name
+
+
+def test_launch_checklist_treats_manual_items_as_outstanding():
+    """UNKNOWN must never read as PASS."""
+    from app.services import launch_checklist
+
+    result = launch_checklist.evaluate(backup_verified=True)
+    assert result["manual_outstanding"] > 0
+    assert result["ready"] is False
+    states = {i["state"] for i in result["items"]}
+    assert states <= {"PASS", "FAIL", "MANUAL"}
+
+
+def test_launch_checklist_flags_real_trading_if_enabled(monkeypatch):
+    from app.config import settings
+    from app.services import launch_checklist
+
+    monkeypatch.setattr(settings, "ALLOW_REAL_TRADING", True)
+    result = launch_checklist.evaluate(backup_verified=True)
+    item = next(i for i in result["items"] if i["key"] == "real_trading_off")
+    assert item["state"] == "FAIL"
+
+
+def test_launch_checklist_never_prints_a_secret_value():
+    from app.config import settings
+    from app.services import launch_checklist
+
+    blob = str(launch_checklist.evaluate(backup_verified=True))
+    for value in (settings.JWT_SECRET, settings.MT5_BRIDGE_TOKEN,
+                  settings.DATABASE_URL):
+        assert value not in blob
+
+
+def test_passing_the_checklist_does_not_enable_real_trading():
+    from app.services import launch_checklist
+
+    result = launch_checklist.evaluate(backup_verified=True)
+    assert "does not enable real trading" in result["note"].lower()
+
+
+@pytest.mark.asyncio
+async def test_security_overview_includes_maintenance_and_checklist(env):
+    r = await env["client"].get("/api/admin/security",
+                                headers=_h(env["tokens"]["admin"]))
+    body = r.json()
+    assert body["maintenance"]["active"] is False
+    assert body["launch_checklist"]["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_failed_restore_stays_in_maintenance_and_raises_an_incident(env):
+    """Section 4: do not resume execution against an unverified database."""
+    from sqlalchemy import select
+
+    from app.models import Incident, Notification
+    from app.services import maintenance
+
+    r = await env["client"].post("/api/admin/backups/restore",
+                                 headers=_h(env["tokens"]["admin"]),
+                                 json={"backup_id": env["backup_id"],
+                                       "confirm": True})
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+    # Still in maintenance: nothing resumed on its own.
+    assert r.json()["maintenance_active"] is True
+    assert maintenance.current().active is True
+
+    async with env["Session"]() as db:
+        incidents = (await db.execute(select(Incident))).scalars().all()
+        notes = (await db.execute(select(Notification))).scalars().all()
+    assert any(i.category == "RESTORE_FAILED" for i in incidents)
+    assert any(n.event == "restore_failed" for n in notes)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_restore_closes_no_position(env):
+    """Recovery must never become a trading event."""
+    from pathlib import Path
+
+    await env["client"].post("/api/admin/backups/restore",
+                             headers=_h(env["tokens"]["admin"]),
+                             json={"backup_id": env["backup_id"], "confirm": True})
+    source = Path("app/routers/security.py").read_text(encoding="utf-8")
+    body = source.split("async def restore_backup")[1]
+    for forbidden in ("close_all", "close_position", "executor"):
+        assert forbidden not in body
+
+
+@pytest.mark.asyncio
+async def test_customer_cannot_see_maintenance_internals(env):
+    """Section 19: the customer status stays coarse during maintenance."""
+    from app.services import maintenance
+
+    maintenance.enter("Database restore", detail="backup #3")
+    r = await env["client"].get("/api/support/platform-status",
+                                headers=_h(env["tokens"]["customer"]))
+    assert r.status_code == 200
+    blob = r.text.lower()
+    for leak in ("backup", "restore", "database", "docker", "postgres"):
+        assert leak not in blob

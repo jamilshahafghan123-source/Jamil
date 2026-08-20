@@ -14,7 +14,10 @@ idempotent and states its effect on existing data.
 | `001_subscriptions.sql` | `subscriptions` table | No |
 | `002_incidents_notifications.sql` | `incidents`, `notifications` tables | No |
 | `003_backup_and_reset.sql` | `backup_records`, `password_reset_tokens` tables | No |
+| `004_backup_metadata.sql` | `checksum`, `app_version`, `database_name` columns | Columns added with defaults |
 
-If a change ever needs to *alter* or backfill an existing table, that is
-the point to add Alembic — `create_all` cannot do it, and a hand-run SQL
+`004` is the first file that ALTERs rather than creates. It is still safe
+for `create_all` deployments only because the columns have defaults and
+existing rows stay valid without a backfill. The next change that needs a
+real backfill is the point to add Alembic — `create_all` cannot do it, and a hand-run SQL
 file is not a substitute for a versioned history.
