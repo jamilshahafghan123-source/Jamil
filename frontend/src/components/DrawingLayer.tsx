@@ -22,7 +22,8 @@ import type { ChartCoordinates } from "./TradingChart";
 
 export type DrawingKind =
   | "TREND_LINE" | "HORIZONTAL" | "VERTICAL" | "RECTANGLE"
-  | "ARROW" | "TEXT" | "RULER" | "LONG_POSITION" | "SHORT_POSITION";
+  | "ARROW" | "TEXT" | "RULER" | "LONG_POSITION" | "SHORT_POSITION"
+  | "FIB";
 
 export interface Point {
   time: string;
@@ -49,11 +50,20 @@ export const TOOLS: { kind: DrawingKind | "CURSOR"; label: string; hint: string 
   { kind: "RULER", label: "↕", hint: "Measure" },
   { kind: "LONG_POSITION", label: "▲", hint: "Long position" },
   { kind: "SHORT_POSITION", label: "▼", hint: "Short position" },
+  { kind: "FIB", label: "%", hint: "Fibonacci retracement" },
 ];
+
+/**
+ * Retracement ratios, drawn between the two clicked swing points. 0 sits on
+ * the first click and 1 on the second, so dragging low→high measures a
+ * pullback in an uptrend and high→low one in a downtrend.
+ */
+const FIB_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
 /** Shapes needing two clicks; the rest are placed with one. */
 const TWO_POINT: DrawingKind[] = [
   "TREND_LINE", "RECTANGLE", "ARROW", "RULER", "LONG_POSITION", "SHORT_POSITION",
+  "FIB",
 ];
 
 const COLOUR = "#8ab4f8";
@@ -244,6 +254,38 @@ export function DrawingLayer({
                         height={(bottom - top) / 2}
                         fill={isLong ? "rgba(244,86,74,0.16)" : "rgba(63,185,80,0.16)"}
                         stroke={stroke} strokeWidth={1} />
+                </g>
+              );
+            }
+            case "FIB": {
+              const [a, b] = drawing.points;
+              const left = Math.min(pts[0].x, pts[1].x);
+              const right = Math.max(pts[0].x, pts[1].x);
+              const span = b.price - a.price;
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}
+                   style={{ cursor: tool === "CURSOR" && !drawing.locked
+                     ? "move" : "default" }}>
+                  {FIB_RATIOS.map((ratio) => {
+                    const price = a.price + span * ratio;
+                    const y = coords?.priceToY(price);
+                    if (y == null) return null;
+                    // 0.5 is not a Fibonacci ratio but is the level traders
+                    // actually watch, so it is drawn and labelled like one.
+                    return (
+                      <g key={ratio}>
+                        <line x1={left} y1={y} x2={right} y2={y} stroke={stroke}
+                              strokeWidth={ratio === 0 || ratio === 1 ? 1.4 : 1}
+                              strokeDasharray={ratio === 0 || ratio === 1
+                                ? undefined : "4 3"} />
+                        <text x={right + 4} y={y + 3} fill={stroke} fontSize={9.5}>
+                          {ratio.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}
+                          {"  "}
+                          {price.toFixed(2)}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             }
