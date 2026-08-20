@@ -14,6 +14,7 @@ import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLaye
 import { SessionLayer } from "../components/SessionLayer";
 import { SymbolSearch } from "../components/SymbolSearch";
 import { TechnicalSummary } from "../components/TechnicalSummary";
+import { BrokerCentre } from "../components/BrokerCentre";
 import {
   AIOverlayLayer,
   type AIStructureMark,
@@ -103,6 +104,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [showPrevLevels, setShowPrevLevels] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [sideTab, setSideTab] = useState<"ai" | "technicals">("ai");
+  const [brokersOpen, setBrokersOpen] = useState(false);
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
@@ -523,6 +525,14 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           title="Previous day, week and month high/low"
         >
           Prev levels
+        </button>
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => setBrokersOpen(true)}
+          title="Broker connection centre"
+        >
+          Brokers
         </button>
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           Reset demo
@@ -1022,6 +1032,8 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           setSearchOpen(false);
         }}
       />
+
+      <BrokerCentre open={brokersOpen} onClose={() => setBrokersOpen(false)} />
 
       <SupportChat />
     </div>

@@ -16,6 +16,7 @@
   NotificationFeed,
   OrderLog,
   RecoveryStatus,
+  BrokerDirectory,
   RiskSettings,
   SessionMap,
   SecurityOverview,
@@ -228,6 +229,9 @@ export const api = {
       `/api/demo/instruments/search?q=${encodeURIComponent(q)}`,
       signal ? { signal } : {},
     ),
+
+  /** Broker directory. Statuses only — no credentials, no ratings. */
+  brokers: () => request<BrokerDirectory>("/api/demo/brokers"),
 
   demoOpen: (body: {
     symbol: string;

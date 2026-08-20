@@ -33,7 +33,7 @@ from ..models import (
     TradeSource,
     User,
 )
-from ..services import demo_engine, instruments, maintenance
+from ..services import brokers, demo_engine, instruments, maintenance
 from ..services.mt5_client import BridgeError, mt5
 
 router = APIRouter(
@@ -181,6 +181,26 @@ async def search_instruments(
         "count": len(results),
         "results": results,
         "priceable": list(instruments.priceable_symbols()),
+    }
+
+
+@router.get("/brokers")
+async def list_brokers(_user: User = Depends(current_user)) -> dict:
+    """Broker connection centre (section 40).
+
+    Every entry carries its real status. Nothing here is a rating, a
+    recommendation or a claim of partnership, and no credential of any
+    kind is included or requested.
+    """
+    return {
+        "by_category": brokers.by_category(),
+        "connectable": list(brokers.connectable_keys()),
+        "funded_accounts": brokers.funded_account_status(),
+        "disclaimer": (
+            "Listing a broker is not endorsement, partnership or a claim "
+            "of support. J Gold AI never custodies your trading money and "
+            "never asks for a broker password."
+        ),
     }
 
 

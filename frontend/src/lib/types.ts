@@ -711,3 +711,22 @@ export interface SessionMap {
   active: { session: string; display_name: string; colour: string }[];
   definitions: SessionDefinition[];
 }
+
+/** Broker connection centre (sections 40-44). Never carries a credential. */
+export interface BrokerInfo {
+  key: string;
+  display_name: string;
+  category: string;
+  status: "CONNECTED" | "AVAILABLE" | "COMING_SOON" | "UNSUPPORTED";
+  auth_method: string;
+  connectable: boolean;
+  capabilities: string[];
+  note: string;
+}
+
+export interface BrokerDirectory {
+  by_category: Record<string, BrokerInfo[]>;
+  connectable: string[];
+  funded_accounts: { supported: boolean; status: string; detail: string };
+  disclaimer: string;
+}

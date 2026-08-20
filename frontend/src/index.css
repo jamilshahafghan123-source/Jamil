@@ -3081,3 +3081,29 @@ th.right {
   margin: 8px 0 0;
 }
 .jg-side-tabs { display: flex; gap: 5px; margin: 14px 0 8px; }
+
+/* ------------------------------------------- broker connection centre (§40)
+   No stars, no ratings, no "recommended" badge: there is no honest basis
+   for any of those here, and a trading platform that invents one has
+   started misleading people about money. */
+.jg-broker-modal { width: min(660px, 94vw); max-height: min(80vh, 760px);
+  display: flex; flex-direction: column; padding: 0; }
+.jg-broker-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.jg-broker-main { display: flex; align-items: center; gap: 10px; }
+.jg-broker-name { font-weight: 600; font-size: 13px; }
+.jg-broker-note {
+  margin: 4px 0 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted, #8b93a1);
+}
+.jg-broker-auth {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted, #8b93a1);
+  opacity: 0.85;
+}
