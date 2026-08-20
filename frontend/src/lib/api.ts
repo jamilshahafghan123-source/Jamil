@@ -1,6 +1,7 @@
 ﻿import type {
   AdminBackup,
   AdminIncident,
+  ApiDrawing,
   AdminTicket,
   Analysis,
   BarsResponse,
@@ -228,6 +229,44 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     }),
+
+  // ---- Customer chart drawings. Ownership enforced server-side. -------
+
+  drawings: (symbol: string, timeframe: string) =>
+    request<ApiDrawing[]>(
+      `/api/drawings?symbol=${encodeURIComponent(symbol)}` +
+        `&timeframe=${encodeURIComponent(timeframe)}`,
+    ),
+
+  createDrawing: (body: {
+    symbol: string;
+    timeframe: string;
+    kind: string;
+    payload: Record<string, unknown>;
+  }) =>
+    request<ApiDrawing>("/api/drawings", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateDrawing: (
+    id: number,
+    body: { payload?: Record<string, unknown>; locked?: boolean; hidden?: boolean },
+  ) =>
+    request<ApiDrawing>(`/api/drawings/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  deleteDrawing: (id: number) =>
+    request<{ deleted: number }>(`/api/drawings/${id}`, { method: "DELETE" }),
+
+  clearDrawings: (symbol: string, timeframe: string) =>
+    request<{ deleted: number }>(
+      `/api/drawings?symbol=${encodeURIComponent(symbol)}` +
+        `&timeframe=${encodeURIComponent(timeframe)}`,
+      { method: "DELETE" },
+    ),
 
   adminSecurity: () => request<SecurityOverview>("/api/admin/security"),
 

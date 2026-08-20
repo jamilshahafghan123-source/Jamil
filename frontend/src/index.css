@@ -2412,7 +2412,9 @@ th.right {
 
 .jg-ws-main {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  /* toolbar | chart | ticket. The chart takes the slack; the rails size to
+     their content so neither steals width from it. */
+  grid-template-columns: auto minmax(0, 1fr) 300px;
   gap: 12px;
   padding: 12px 14px;
   align-items: start;
@@ -2560,7 +2562,7 @@ th.right {
 .jg-ws-confirm-list dd { margin: 0; font-family: var(--mono); text-align: right; }
 
 @media (max-width: 900px) {
-  .jg-ws-main { grid-template-columns: 1fr; }
+  .jg-ws-main { grid-template-columns: minmax(0, 1fr); }
   .jg-ws-ticket { order: 2; }
 }
 @media (max-width: 560px) {
@@ -2792,4 +2794,66 @@ th.right {
     overflow-y: auto;
   }
   .jg-ind-readout { flex: 1 1 100%; }
+}
+
+/* ------------------------------------------------------ drawing tools */
+
+.jg-draw-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  align-self: start;
+}
+.jg-draw-tool {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.jg-draw-tool:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.jg-draw-tool.active {
+  background: var(--gold-glow);
+  border-color: var(--gold-dim);
+  color: var(--gold);
+}
+.jg-draw-tool:disabled { opacity: 0.3; cursor: not-allowed; }
+.jg-draw-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 2px;
+}
+
+/* The SVG sits over the chart. Pointer events only where a tool is armed
+   or a shape is under the cursor, so panning still works with the cursor
+   tool selected. */
+.jg-chart-stack { position: relative; }
+.jg-draw-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+.jg-draw-layer.cursor { pointer-events: none; }
+.jg-draw-layer.cursor svg * { pointer-events: auto; }
+.jg-draw-layer.drawing { cursor: crosshair; pointer-events: auto; }
+.jg-draw-layer svg { display: block; overflow: visible; }
+
+@media (max-width: 900px) {
+  /* Horizontal strip above the chart on narrow screens; a vertical rail
+     would eat the width the chart needs. */
+  .jg-draw-tools {
+    flex-direction: row;
+    flex-wrap: wrap;
+    order: -1;
+  }
 }

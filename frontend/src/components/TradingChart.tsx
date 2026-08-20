@@ -90,6 +90,23 @@ function toCandles(bars: Bar[]): CandlestickData<Time>[] {
     .filter((bar, i, all) => i === 0 || bar.time !== all[i - 1].time);
 }
 
+/**
+ * Coordinate bridge for the drawing layer.
+ *
+ * Drawings are stored in price and time, never pixels, so they survive a
+ * resize, a zoom and a different screen. Converting between the two is the
+ * chart's job — it owns the scales — so it is exposed here rather than
+ * re-derived, which would drift the moment the user pans.
+ */
+export interface ChartCoordinates {
+  priceToY: (price: number) => number | null;
+  yToPrice: (y: number) => number | null;
+  timeToX: (isoTime: string) => number | null;
+  xToTime: (x: number) => string | null;
+  /** Fires on every pan, zoom and resize so the overlay can repaint. */
+  subscribe: (fn: () => void) => () => void;
+}
+
 export function TradingChart({
   bars,
   priceLines = [],
@@ -97,6 +114,7 @@ export function TradingChart({
   markers = [],
   overlays = [],
   height = 480,
+  onCoordinates,
 }: {
   bars: Bar[];
   priceLines?: PriceLine[];
@@ -104,6 +122,7 @@ export function TradingChart({
   markers?: TradeMarker[];
   overlays?: OverlaySeries[];
   height?: number;
+  onCoordinates?: (coords: ChartCoordinates | null) => void;
 }) {
   const holder = useRef<HTMLDivElement | null>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -112,6 +131,9 @@ export function TradingChart({
   // Keyed by overlay id so a series is created once and updated in place;
   // removing and re-adding every poll would flicker and churn memory.
   const overlaySeries = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  // The coordinate bridge is built once with the chart, so it reads bars
+  // through a ref rather than closing over a stale array.
+  const barsRef = useRef<Bar[]>(bars);
 
   // Create once. Recreating on data change would discard zoom and pan.
   useEffect(() => {
@@ -152,9 +174,66 @@ export function TradingChart({
     chart.current = instance;
     candles.current = series;
 
+    const listeners = new Set<() => void>();
+    const notify = () => listeners.forEach((fn) => fn());
+
+    // Times are SNAPPED TO REAL BARS in both directions.
+    //
+    // timeToCoordinate only maps times that exactly match a data point, so
+    // a click landing between two candles yields a time the library can
+    // never project back — the drawing vanishes on the next reload. Snapping
+    // costs sub-candle precision and buys an annotation that stays put
+    // across reloads, timeframe switches and zoom, which is the trade a
+    // chart annotation should make anyway.
+    const nearestBarTime = (targetSeconds: number): string | null => {
+      const list = barsRef.current;
+      if (list.length === 0) return null;
+      let best = list[0];
+      let bestGap = Infinity;
+      for (const bar of list) {
+        const gap = Math.abs(
+          Math.floor(new Date(bar.time).getTime() / 1000) - targetSeconds,
+        );
+        if (gap < bestGap) {
+          bestGap = gap;
+          best = bar;
+        }
+      }
+      return best.time;
+    };
+
+    onCoordinates?.({
+      priceToY: (price) => series.priceToCoordinate(price) as number | null,
+      yToPrice: (y) => series.coordinateToPrice(y) as number | null,
+      timeToX: (iso) => {
+        const scale = instance.timeScale();
+        const exact = scale.timeToCoordinate(toSeconds(iso)) as number | null;
+        if (exact != null) return exact;
+        // A stored time whose bar has scrolled out of the loaded window.
+        const snapped = nearestBarTime(
+          Math.floor(new Date(iso).getTime() / 1000),
+        );
+        return snapped == null
+          ? null
+          : (scale.timeToCoordinate(toSeconds(snapped)) as number | null);
+      },
+      xToTime: (x) => {
+        const t = instance.timeScale().coordinateToTime(x);
+        if (t == null) return null;
+        return nearestBarTime(t as number);
+      },
+      subscribe: (fn) => {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+    });
+
+    instance.timeScale().subscribeVisibleLogicalRangeChange(notify);
+
     const resize = () => {
       if (holder.current) {
         instance.applyOptions({ width: holder.current.clientWidth });
+        notify();
       }
     };
     resize();
@@ -171,11 +250,17 @@ export function TradingChart({
       candles.current = null;
       lines.current = [];
       overlaySeries.current.clear();
+      listeners.clear();
+      // Tell the overlay its coordinates are gone; calling into a disposed
+      // chart throws, and a stale bridge is exactly how that happens.
+      onCoordinates?.(null);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height]);
 
   // Data updates in place.
   useEffect(() => {
+    barsRef.current = bars;
     if (!candles.current) return;
     candles.current.setData(toCandles(bars));
   }, [bars]);

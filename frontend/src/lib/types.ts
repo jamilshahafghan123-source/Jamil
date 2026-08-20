@@ -611,3 +611,21 @@ export interface InstrumentInfo {
   volume_step: number;
   quote_currency: string;
 }
+
+
+/**
+ * A persisted customer drawing. `payload` carries price/time geometry that
+ * the backend stores without interpreting — a new tool is a frontend
+ * change, not a migration.
+ */
+export interface ApiDrawing {
+  id: number;
+  symbol: string;
+  timeframe: string;
+  kind: string;
+  payload: { points?: { time: string; price: number }[]; text?: string };
+  locked: boolean;
+  hidden: boolean;
+  created_at: string;
+  updated_at: string;
+}

@@ -609,3 +609,41 @@ class DemoTrade(Base):
     closed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )
+
+
+class ChartDrawing(Base):
+    """A customer's own chart annotation.
+
+    Scoped to user, symbol and timeframe together: a trend line drawn on
+    XAUUSD M15 belongs on XAUUSD M15 and nowhere else, so the scope is part
+    of the row rather than something the client filters after loading.
+
+    `payload` holds the shape's geometry as the client understands it —
+    price and time coordinates, never pixels, so a drawing survives a
+    different screen size. It is opaque to the backend by design: the
+    backend's job here is ownership and scoping, not geometry.
+
+    These are the customer's own work and are stored entirely separately
+    from AI overlays, which are derived from analysis and never persisted.
+    """
+
+    __tablename__ = "chart_drawings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), index=True)
+    #: TREND_LINE | HORIZONTAL | VERTICAL | RECTANGLE | ARROW | TEXT |
+    #: RULER | LONG_POSITION | SHORT_POSITION
+    kind: Mapped[str] = mapped_column(String(24))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

@@ -2,9 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { Brand } from "../components/Brand";
 import { SupportChat } from "../components/SupportChat";
-import { TradingChart, type PriceLine, type TradeMarker } from "../components/TradingChart";
+import {
+  TradingChart,
+  type ChartCoordinates,
+  type PriceLine,
+  type TradeMarker,
+} from "../components/TradingChart";
 import { AIPanel, type AISetup } from "../components/AIPanel";
 import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
+import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLayer";
+import { useDrawings } from "../components/useDrawings";
 import type {
   Analysis,
   Bar,
@@ -79,6 +86,12 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
   const { configs, setConfigs, overlays, readouts } = useIndicators(bars);
+
+  // Customer drawings. Scoped to symbol AND timeframe, reloaded on either
+  // change, and entirely separate from the AI overlays above.
+  const [tool, setTool] = useState<DrawingKind | "CURSOR">("CURSOR");
+  const [coords, setCoords] = useState<ChartCoordinates | null>(null);
+  const draw = useDrawings(symbol, timeframe);
 
   // One in-flight bars request at a time; a timeframe click mid-flight must
   // not let a stale response land after the new one.
@@ -376,6 +389,53 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
 
       {/* --------------------------------------------------- chart + ticket */}
       <div className="jg-ws-main">
+        <nav className="jg-draw-tools" aria-label="Drawing tools">
+          {TOOLS.map((t) => (
+            <button
+              key={t.kind}
+              type="button"
+              title={t.hint}
+              aria-label={t.hint}
+              className={tool === t.kind ? "jg-draw-tool active" : "jg-draw-tool"}
+              onClick={() => setTool(t.kind as DrawingKind | "CURSOR")}
+            >
+              {t.label}
+            </button>
+          ))}
+          <span className="jg-draw-sep" />
+          <button type="button" title="Undo" aria-label="Undo"
+                  className="jg-draw-tool" disabled={!draw.canUndo}
+                  onClick={() => void draw.undo()}>↺</button>
+          <button type="button" title="Redo" aria-label="Redo"
+                  className="jg-draw-tool" disabled={!draw.canRedo}
+                  onClick={() => void draw.redo()}>↻</button>
+          <button
+            type="button" title="Lock selected" aria-label="Lock selected"
+            className="jg-draw-tool" disabled={draw.selectedId == null}
+            onClick={() =>
+              draw.selectedId != null && void draw.toggle(draw.selectedId, "locked")
+            }
+          >🔒</button>
+          <button
+            type="button" title="Hide selected" aria-label="Hide selected"
+            className="jg-draw-tool" disabled={draw.selectedId == null}
+            onClick={() =>
+              draw.selectedId != null && void draw.toggle(draw.selectedId, "hidden")
+            }
+          >👁</button>
+          <button
+            type="button" title="Delete selected" aria-label="Delete selected"
+            className="jg-draw-tool" disabled={draw.selectedId == null}
+            onClick={() => draw.selectedId != null && void draw.remove(draw.selectedId)}
+          >🗑</button>
+          <button
+            type="button" title="Clear my drawings"
+            aria-label="Clear my drawings"
+            className="jg-draw-tool"
+            onClick={() => void draw.clear()}
+          >✕</button>
+        </nav>
+
         <section className="jg-ws-chart">
           {barsError ? (
             <div className="jg-ws-chart-empty">{barsError}</div>
@@ -386,13 +446,25 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
               No candles returned for {timeframe}.
             </div>
           ) : (
-            <TradingChart
-              bars={bars}
+            <div className="jg-chart-stack">
+              <TradingChart
+                bars={bars}
               markers={markers}
               priceLines={aiLines}
-              overlays={overlays}
-              height={460}
-            />
+                overlays={overlays}
+                height={460}
+                onCoordinates={setCoords}
+              />
+              <DrawingLayer
+                coords={coords}
+                tool={tool}
+                drawings={draw.drawings}
+                selectedId={draw.selectedId}
+                onSelect={draw.setSelectedId}
+                onCreate={draw.create}
+                onMove={draw.move}
+              />
+            </div>
           )}
           {readouts.length > 0 && (
             <div className="jg-ind-readouts">

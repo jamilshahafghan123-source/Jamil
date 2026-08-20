@@ -17,6 +17,7 @@ idempotent and states its effect on existing data.
 | `004_backup_metadata.sql` | `checksum`, `app_version`, `database_name` columns | Columns added with defaults |
 | `005_demo_engine.sql` | `demo_accounts`, `demo_positions`, `demo_trades` tables | No |
 | `006_execution_venue.sql` | `execution_venue` column on `risk_settings` | Column added with a default |
+| `007_chart_drawings.sql` | `chart_drawings` table | No |
 
 `004` is the first file that ALTERs rather than creates. It is still safe
 for `create_all` deployments only because the columns have defaults and
