@@ -15,6 +15,8 @@ import { SessionLayer } from "../components/SessionLayer";
 import { SymbolSearch } from "../components/SymbolSearch";
 import { TechnicalSummary } from "../components/TechnicalSummary";
 import { BrokerCentre } from "../components/BrokerCentre";
+import { LanguagePicker } from "../components/LanguagePicker";
+import { useLanguage } from "../i18n/useLanguage";
 import {
   AIOverlayLayer,
   type AIStructureMark,
@@ -68,6 +70,7 @@ function pnlClass(value: number | null | undefined): string {
 }
 
 export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
+  const { t } = useLanguage();
   const [symbol, setSymbol] = useState("XAUUSD");
   const [timeframe, setTimeframe] = useState<Timeframe>("M15");
   const [bars, setBars] = useState<Bar[]>([]);
@@ -452,7 +455,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           onClick={() => setSearchOpen(true)}
           title="Search every market in the J Gold AI universe"
         >
-          Search markets
+          {t("workspace.searchMarkets")}
         </button>
         <select
           className="jg-ws-select"
@@ -516,7 +519,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           onClick={() => setShowSessions((v) => !v)}
           title="Sydney, Tokyo, London and New York ranges"
         >
-          Sessions
+          {t("workspace.sessions")}
         </button>
         <button
           type="button"
@@ -524,7 +527,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           onClick={() => setShowPrevLevels((v) => !v)}
           title="Previous day, week and month high/low"
         >
-          Prev levels
+          {t("workspace.previousLevels")}
         </button>
         <button
           type="button"
@@ -532,28 +535,29 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           onClick={() => setBrokersOpen(true)}
           title="Broker connection centre"
         >
-          Brokers
+          {t("workspace.brokers")}
         </button>
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
-          Reset demo
+          {t("workspace.resetDemo")}
         </button>
+        <LanguagePicker />
         <button type="button" className="btn sm" onClick={onLogout}>
-          Sign out
+          {t("nav.signOut")}
         </button>
       </header>
 
       {/* ------------------------------------------------------- metrics */}
       <div className="jg-ws-metrics">
-        <Metric label="Balance" value={money(acct?.balance, acct?.currency)} />
-        <Metric label="Equity" value={money(acct?.equity, acct?.currency)} />
-        <Metric label="Free margin" value={money(acct?.free_margin, acct?.currency)} />
+        <Metric label={t("account.balance")} value={money(acct?.balance, acct?.currency)} />
+        <Metric label={t("account.equity")} value={money(acct?.equity, acct?.currency)} />
+        <Metric label={t("account.freeMargin")} value={money(acct?.free_margin, acct?.currency)} />
         <Metric
-          label="Floating P/L"
+          label={t("account.floatingPnl")}
           value={money(acct?.floating_pnl, acct?.currency)}
           tone={pnlClass(acct?.floating_pnl)}
         />
         <Metric
-          label="Realised P/L"
+          label={t("account.realisedPnl")}
           value={money(acct?.realized_pnl, acct?.currency)}
           tone={pnlClass(acct?.realized_pnl)}
         />
@@ -688,7 +692,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         </section>
 
         <aside className="jg-ws-ticket">
-          <h3>Order ticket</h3>
+          <h3>{t("ticket.title")}</h3>
           <p className="jg-ws-virtual">VIRTUAL MONEY — J Gold AI demo</p>
 
           <div className="jg-side-toggle">

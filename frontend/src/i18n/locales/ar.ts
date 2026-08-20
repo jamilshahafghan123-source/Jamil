@@ -1,0 +1,68 @@
+/**
+ * Arabic (العربية). Right-to-left.
+ *
+ * Only genuinely translated strings appear here. A key that is missing
+ * falls back to English (UK) and is counted as untranslated by
+ * `coverage()`, so this locale reports itself as BETA rather than
+ * claiming to be finished. Market terminology (XAUUSD, RSI, MACD, ATR,
+ * BOS, CHoCH, FVG) is intentionally left untranslated — traders read
+ * those as symbols.
+ */
+
+export const ar: Record<string, string> = {
+  "nav.signIn": "تسجيل الدخول",
+  "nav.signOut": "تسجيل الخروج",
+  "nav.createAccount": "إنشاء حساب",
+  "nav.back": "رجوع",
+  "nav.close": "إغلاق",
+  "nav.cancel": "إلغاء",
+  "nav.confirm": "تأكيد",
+  "nav.language": "اللغة",
+  "workspace.searchMarkets": "البحث عن الأسواق",
+  "workspace.indicators": "المؤشرات",
+  "workspace.sessions": "الجلسات",
+  "workspace.previousLevels": "المستويات السابقة",
+  "workspace.brokers": "الوسطاء",
+  "workspace.resetDemo": "إعادة ضبط التجريبي",
+  "workspace.clearAI": "مسح تحليل الذكاء الاصطناعي",
+  "account.balance": "الرصيد",
+  "account.equity": "حقوق الملكية",
+  "account.freeMargin": "الهامش الحر",
+  "account.floatingPnl": "الربح/الخسارة العائمة",
+  "account.realisedPnl": "الربح/الخسارة المحققة",
+  "account.market": "السوق",
+  "account.spread": "الفارق",
+  "account.virtualMoney": "أموال افتراضية",
+  "ticket.title": "أمر التداول",
+  "ticket.buy": "شراء",
+  "ticket.sell": "بيع",
+  "ticket.volume": "الحجم",
+  "ticket.stopLoss": "وقف الخسارة",
+  "ticket.takeProfit": "جني الأرباح",
+  "ticket.entry": "الدخول",
+  "ticket.risk": "المخاطرة",
+  "ticket.confirmTitle": "تأكيد الأمر",
+  "ai.title": "تحليل J Gold AI",
+  "ai.run": "تشغيل التحليل",
+  "ai.useSetup": "استخدام إعداد الذكاء الاصطناعي",
+  "ai.confidence": "الثقة",
+  "ai.decision": "القرار",
+  "ai.noTrade": "لا صفقة",
+  "tabs.positions": "الصفقات المفتوحة",
+  "tabs.history": "سجل الصفقات",
+  "tabs.aiHistory": "سجل الذكاء الاصطناعي",
+  "table.symbol": "الرمز",
+  "table.side": "الاتجاه",
+  "table.volume": "الحجم",
+  "table.entry": "الدخول",
+  "table.close": "إغلاق",
+  "table.profit": "الربح/الخسارة",
+  "tech.summary": "الملخص",
+  "tech.buy": "شراء",
+  "tech.sell": "بيع",
+  "tech.neutral": "محايد",
+  "status.live": "مباشر",
+  "status.comingSoon": "قريباً",
+  "error.marketData": "بيانات السوق غير متوفرة حالياً.",
+  "language.title": "اللغة",
+};
