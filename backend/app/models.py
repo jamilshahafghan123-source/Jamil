@@ -350,3 +350,80 @@ class Subscription(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class IncidentStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    RECOVERING = "RECOVERING"
+    RECOVERED = "RECOVERED"
+    NEEDS_ADMIN = "NEEDS_ADMIN"
+    FAILED = "FAILED"
+
+
+class Incident(Base):
+    """One detected service failure and what was done about it.
+
+    `actions` is the ordered list of allow-listed operation names that were
+    attempted, with their results. Because operations are enum constants,
+    this column can only ever contain names from that enum — there is no
+    shape in which a command string could be recorded here.
+    """
+
+    __tablename__ = "incidents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    service: Mapped[str] = mapped_column(String(32), index=True)
+    category: Mapped[str] = mapped_column(String(32))
+    status: Mapped[IncidentStatus] = mapped_column(
+        Enum(IncidentStatus), default=IncidentStatus.OPEN, index=True
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    recovered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    original_state: Mapped[str] = mapped_column(String(32), default="")
+    final_state: Mapped[str] = mapped_column(String(32), default="")
+    attempt_number: Mapped[int] = mapped_column(Integer, default=0)
+    #: [{"operation": "RESTART_BRIDGE", "ok": true, "detail": "..."}]
+    actions: Mapped[list] = mapped_column(JSON, default=list)
+    admin_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    detail: Mapped[str] = mapped_column(Text, default="")
+
+
+class NotificationSeverity(str, enum.Enum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class Notification(Base):
+    """An owner-facing event.
+
+    Delivery today is the admin control centre reading this table. Channel
+    fields exist so email or push can be added by writing a deliverer that
+    consumes these rows — nothing here claims to have sent anything it has
+    not, and `delivered_channels` stays empty until something real delivers.
+    """
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    severity: Mapped[NotificationSeverity] = mapped_column(
+        Enum(NotificationSeverity), default=NotificationSeverity.INFO, index=True
+    )
+    event: Mapped[str] = mapped_column(String(64), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    incident_id: Mapped[int | None] = mapped_column(
+        ForeignKey("incidents.id"), nullable=True, index=True
+    )
+    #: Channels that actually delivered it. Empty until a deliverer exists.
+    delivered_channels: Mapped[list] = mapped_column(JSON, default=list)

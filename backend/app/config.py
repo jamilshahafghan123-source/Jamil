@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     MT5_BRIDGE_TOKEN: str
     MT5_BRIDGE_TIMEOUT: float = 15.0
 
+    # ---- Windows recovery agent -----------------------------------------
+    # Small trusted service beside MT5/Docker on the Windows host. Empty by
+    # default: with no URL or token, recovery reports "not configured" and
+    # attempts nothing, so a deployment without an agent behaves exactly as
+    # it does today. Bind it to localhost or a private network; it is never
+    # meant to be publicly reachable.
+    WINDOWS_AGENT_URL: str | None = None
+    # Deliberately a different secret from MT5_BRIDGE_TOKEN, so neither
+    # one's rotation or compromise touches the other.
+    WINDOWS_AGENT_TOKEN: str | None = None
+
     # ---- Trading --------------------------------------------------------
     SYMBOL: str = "XAUUSD"
 

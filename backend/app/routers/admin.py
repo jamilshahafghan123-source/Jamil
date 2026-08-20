@@ -24,6 +24,10 @@ from ..db import get_db
 from ..deps import require_admin
 from ..models import (
     AuditLog,
+    Incident,
+    IncidentStatus,
+    Notification,
+    NotificationSeverity,
     RiskSettings,
     Subscription,
     SubscriptionStatus,
@@ -31,10 +35,29 @@ from ..models import (
     UserRole,
 )
 from ..services import health as health_svc
+from ..services import recovery as recovery_svc
 from ..services import safe_mode as safe_mode_svc
 from ..services.mt5_client import mt5
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class RecoveryActionIn(BaseModel):
+    """An admin asking for one allow-listed operation.
+
+    `operation` is validated against the Operation enum, so an unknown name
+    or a shell string is a 400 before anything is dispatched. There is
+    deliberately no field here that could carry a command.
+    """
+
+    operation: str
+
+
+class RecoveryActionOut(BaseModel):
+    operation: str
+    ok: bool
+    detail: str
+    state: str
 
 
 class SubscriptionIn(BaseModel):
@@ -170,6 +193,151 @@ async def control_centre(
         "incidents": {"open": 0, "recovered": 0, "failed_recoveries": 0},
         "support": {"needs_admin": 0, "open": 0},
     }
+
+
+@router.get("/recovery")
+async def recovery_status(
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Recovery panel: agent reachability, per-service state, history."""
+    incidents = (
+        (
+            await db.execute(
+                select(Incident).order_by(Incident.id.desc()).limit(20)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    notes = (
+        (
+            await db.execute(
+                select(Notification).order_by(Notification.id.desc()).limit(20)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "agent": {
+            "configured": recovery_svc.agent.configured,
+            # Never the URL or the token, only whether one is set.
+            "status": "CONFIGURED" if recovery_svc.agent.configured else "OFFLINE",
+        },
+        "services": {
+            s.value: {
+                "state": recovery_svc.planner.state_of(s).value,
+                "attempts_in_window": len(
+                    recovery_svc.planner.record_for(s).recent(
+                        datetime.now(timezone.utc)
+                    )
+                ),
+                "has_automatic_repair": (
+                    recovery_svc.POLICIES[s].repair is not None
+                ),
+                "policy": recovery_svc.POLICIES[s].description,
+            }
+            for s in recovery_svc.Service
+        },
+        "permitted_operations": [op.value for op in recovery_svc.Operation],
+        "incidents": [
+            {
+                "id": i.id,
+                "service": i.service,
+                "category": i.category,
+                "status": i.status.value,
+                "detected_at": i.detected_at.isoformat() if i.detected_at else None,
+                "recovered_at": (
+                    i.recovered_at.isoformat() if i.recovered_at else None
+                ),
+                "attempt_number": i.attempt_number,
+                "actions": i.actions or [],
+                "final_state": i.final_state,
+                "detail": i.detail,
+            }
+            for i in incidents
+        ],
+        "notifications": [
+            {
+                "id": n.id,
+                "severity": n.severity.value,
+                "event": n.event,
+                "message": n.message,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "read_at": n.read_at.isoformat() if n.read_at else None,
+                "delivered_channels": n.delivered_channels or [],
+            }
+            for n in notes
+        ],
+    }
+
+
+@router.post("/recovery/run", response_model=RecoveryActionOut)
+async def run_recovery_operation(
+    body: RecoveryActionIn,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> RecoveryActionOut:
+    """Run one allow-listed operation, on an administrator's explicit request.
+
+    This is the manual "CHECK NOW / RESTART BRIDGE" path. It is not a command
+    box: the body names an operation from a closed enum and carries nothing
+    else, so there is no string here that reaches a shell.
+    """
+    try:
+        operation = recovery_svc.parse(body.operation)
+    except recovery_svc.UnknownOperationError:
+        # The rejected value is not echoed back.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Unknown recovery operation"
+        ) from None
+
+    result = await recovery_svc.agent.run(operation)
+
+    incident = None
+    if recovery_svc.is_mutating(operation):
+        incident = Incident(
+            service="MANUAL",
+            category="ADMIN_REQUESTED",
+            status=(
+                IncidentStatus.RECOVERED if result.ok else IncidentStatus.FAILED
+            ),
+            original_state="",
+            final_state="OK" if result.ok else "FAILED",
+            attempt_number=1,
+            actions=[result.as_dict()],
+            detail=f"Requested by administrator {admin.email}.",
+            recovered_at=datetime.now(timezone.utc) if result.ok else None,
+        )
+        db.add(incident)
+        db.add(
+            AuditLog(
+                user_id=admin.id,
+                event="admin_recovery_operation",
+                detail={"operation": operation.value, "ok": result.ok},
+            )
+        )
+
+    if result.auth_failure:
+        db.add(
+            Notification(
+                severity=NotificationSeverity.CRITICAL,
+                event="auth_failure",
+                message=(
+                    "The Windows recovery agent rejected the configured "
+                    "credentials. Verification is required; no secret has "
+                    "been changed."
+                ),
+            )
+        )
+
+    await db.commit()
+
+    state = "NEEDS_ADMIN" if result.auth_failure else ("OK" if result.ok else "FAILED")
+    return RecoveryActionOut(
+        operation=operation.value, ok=result.ok, detail=result.detail, state=state
+    )
 
 
 @router.post("/emergency-stop-all", response_model=EmergencyStopAllResult)
