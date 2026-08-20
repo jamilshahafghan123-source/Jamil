@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,6 +160,27 @@ async def list_instruments(_user: User = Depends(current_user)) -> dict:
     return {
         "default": instruments.DEFAULT_SYMBOL,
         "by_asset_class": instruments.by_asset_class(),
+    }
+
+
+@router.get("/instruments/search")
+async def search_instruments(
+    q: str = Query("", max_length=64),
+    limit: int = Query(25, ge=1, le=50),
+    _user: User = Depends(current_user),
+) -> dict:
+    """Global symbol search (section 5).
+
+    Returns matches with their status attached and no price. A symbol
+    without a feed is reported as forthcoming rather than omitted, so the
+    answer to "do you have TSLA?" is honest in both directions.
+    """
+    results = instruments.search(q, limit=limit)
+    return {
+        "query": q,
+        "count": len(results),
+        "results": results,
+        "priceable": list(instruments.priceable_symbols()),
     }
 
 

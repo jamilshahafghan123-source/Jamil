@@ -217,6 +217,18 @@ export const api = {
       "/api/demo/instruments",
     ),
 
+  /** Global symbol search. Returns statuses, never prices. */
+  searchInstruments: (q: string, signal?: AbortSignal) =>
+    request<{
+      query: string;
+      count: number;
+      results: InstrumentInfo[];
+      priceable: string[];
+    }>(
+      `/api/demo/instruments/search?q=${encodeURIComponent(q)}`,
+      signal ? { signal } : {},
+    ),
+
   demoOpen: (body: {
     symbol: string;
     side: "BUY" | "SELL";

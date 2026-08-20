@@ -633,8 +633,13 @@ export interface InstrumentInfo {
   symbol: string;
   display_name: string;
   asset_class: string;
-  status: "ENABLED" | "COMING_SOON" | "DISABLED";
+  status: "ENABLED" | "DATA_ONLY" | "COMING_SOON" | "UNSUPPORTED" | "DISABLED";
   tradable: boolean;
+  /** Whether a real feed exists. Nothing else may ever show a price. */
+  priceable: boolean;
+  always_open: boolean;
+  base_currency: string;
+  aliases: string[];
   digits: number;
   contract_size: number;
   tick_size: number;

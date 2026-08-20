@@ -12,6 +12,7 @@ import { AIPanel, type AISetup } from "../components/AIPanel";
 import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
 import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLayer";
 import { SessionLayer } from "../components/SessionLayer";
+import { SymbolSearch } from "../components/SymbolSearch";
 import {
   AIOverlayLayer,
   type AIStructureMark,
@@ -99,6 +100,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [sessionMap, setSessionMap] = useState<SessionMap | null>(null);
   const [showSessions, setShowSessions] = useState(false);
   const [showPrevLevels, setShowPrevLevels] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
@@ -440,6 +442,14 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         <Brand size={22} />
         <span className="jg-ws-mode">J GOLD AI DEMO</span>
 
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => setSearchOpen(true)}
+          title="Search every market in the J Gold AI universe"
+        >
+          Search markets
+        </button>
         <select
           className="jg-ws-select"
           value={symbol}
@@ -973,6 +983,16 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
       )}
+
+      <SymbolSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        current={symbol}
+        onPick={(picked) => {
+          setSymbol(picked);
+          setSearchOpen(false);
+        }}
+      />
 
       <SupportChat />
     </div>
