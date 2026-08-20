@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
 from .db import get_db
-from .models import RiskSettings, User
+from .models import RiskSettings, User, UserRole
 from .security import decode_token
 
 bearer = HTTPBearer(auto_error=False)
@@ -110,3 +110,19 @@ def rate_limiter(per_minute: int | None = None) -> Callable[[Request], Awaitable
 
 rate_limit = rate_limiter()
 login_rate_limit = rate_limiter(settings.LOGIN_RATE_LIMIT_PER_MINUTE)
+
+
+async def require_admin(user: User = Depends(current_user)) -> User:
+    """Gate an endpoint to ADMIN accounts.
+
+    Section 81: the control centre must never be reachable by a customer.
+    404 rather than 403 on purpose — a customer probing for admin routes
+    learns nothing about which ones exist.
+
+    Note this guards only the endpoints that depend on it. The existing
+    trading and risk routes still authorise on authentication alone; see
+    the note in app/routers/admin.py.
+    """
+    if user.role is not UserRole.ADMIN:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return user

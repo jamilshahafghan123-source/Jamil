@@ -1,0 +1,211 @@
+"""ADMIN-only control centre (section 81).
+
+Every route here depends on require_admin, which 404s a non-admin so that
+probing tells a customer nothing.
+
+A NOTE ON THE WIDER GAP, because it matters more than this router:
+the existing trading and risk routes authorise on *authentication* alone.
+The ADMIN/CUSTOMER distinction is currently enforced in the frontend only,
+so a CUSTOMER's token can still reach /api/trading/* and /api/risk/*
+directly. That is a behaviour change to make deliberately rather than as a
+side effect of adding this router, so it is reported, not silently applied.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..db import get_db
+from ..deps import require_admin
+from ..models import AuditLog, RiskSettings, User, UserRole
+from ..services import health as health_svc
+from ..services import safe_mode as safe_mode_svc
+from ..services.mt5_client import mt5
+
+router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class EmergencyStopAllResult(BaseModel):
+    stopped_accounts: int
+    positions_closed: int
+    detail: str
+
+
+@router.get("/control-centre")
+async def control_centre(
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """One read for the whole operator view. Never raises on a dead probe."""
+    now = datetime.now(timezone.utc)
+
+    bridge_connected = False
+    bridge_authenticated = True
+    last_tick_at: datetime | None = None
+    try:
+        bridge_connected = await mt5.connected()
+    except Exception as exc:  # noqa: BLE001 - a probe must not 500 the page
+        # 401/403 from the bridge means the token is wrong, not that it is
+        # down; section 83 wants that surfaced as a credential problem.
+        if "401" in str(exc) or "403" in str(exc):
+            bridge_authenticated = False
+
+    if bridge_connected:
+        try:
+            tick = await mt5.tick()
+            raw = tick.get("time") if isinstance(tick, dict) else None
+            if raw:
+                last_tick_at = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except Exception:  # noqa: BLE001 - freshness simply stays unknown
+            last_tick_at = None
+
+    components = (
+        health_svc.simple(health_svc.Component.BACKEND, True, up_detail="Serving.",
+                          now=now),
+        health_svc.simple(health_svc.Component.DATABASE, await _db_ok(db),
+                          up_detail="Reachable.", down_detail="Query failed.", now=now),
+        health_svc.bridge_health(
+            connected=bridge_connected, authenticated=bridge_authenticated, now=now
+        ),
+        health_svc.simple(health_svc.Component.MT5, bridge_connected or None,
+                          up_detail="Terminal reachable via bridge.", now=now),
+        health_svc.market_data_health(last_tick_at, now=now),
+        # Not yet wired; reported honestly rather than assumed healthy.
+        health_svc.simple(health_svc.Component.AI_WORKERS, None, now=now),
+        health_svc.ComponentHealth(
+            health_svc.Component.PAYMENT_SERVICE,
+            health_svc.ComponentStatus.NOT_CONFIGURED,
+            "No payment provider connected.",
+            now,
+        ),
+        health_svc.ComponentHealth(
+            health_svc.Component.NOTIFICATION_SERVICE,
+            health_svc.ComponentStatus.NOT_CONFIGURED,
+            "No notification channel connected.",
+            now,
+        ),
+    )
+    system = health_svc.SystemHealth(components)
+
+    safe = safe_mode_svc.evaluate(
+        bridge_connected=bridge_connected,
+        bridge_authenticated=bridge_authenticated,
+        last_tick_at=last_tick_at,
+        now=now,
+        database_healthy=bool(await _db_ok(db)),
+    )
+
+    total_users = await db.scalar(select(func.count()).select_from(User)) or 0
+    admins = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(User.role == UserRole.ADMIN)
+        )
+        or 0
+    )
+    active = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(User.is_active.is_(True))
+        )
+        or 0
+    )
+    bots_running = (
+        await db.scalar(
+            select(func.count())
+            .select_from(RiskSettings)
+            .where(RiskSettings.bot_enabled.is_(True))
+        )
+        or 0
+    )
+    stopped = (
+        await db.scalar(
+            select(func.count())
+            .select_from(RiskSettings)
+            .where(RiskSettings.emergency_stop.is_(True))
+        )
+        or 0
+    )
+
+    return {
+        "generated_at": now.isoformat(),
+        "system_health": system.as_dict(),
+        "safe_mode": safe.as_dict(),
+        "customers": {
+            "total": total_users,
+            "admins": admins,
+            "customers": total_users - admins,
+            "active": active,
+        },
+        "trading": {
+            "bots_enabled": bots_running,
+            "accounts_emergency_stopped": stopped,
+            "real_trading_allowed_by_server": _real_allowed(),
+        },
+        # Present so the panel has a stable shape before the systems exist.
+        "incidents": {"open": 0, "recovered": 0, "failed_recoveries": 0},
+        "support": {"needs_admin": 0, "open": 0},
+    }
+
+
+@router.post("/emergency-stop-all", response_model=EmergencyStopAllResult)
+async def emergency_stop_all(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> EmergencyStopAllResult:
+    """Halt all automated trading, platform-wide.
+
+    Section 81 is explicit that this must NOT delete existing positions, and
+    it does not: it sets each account's emergency stop, which the risk engine
+    and bot loop both refuse to trade through, and closes nothing. Open
+    positions stay open and manageable. That is the difference between this
+    and the per-user /api/risk/emergency-stop, which does close positions at
+    its owner's request.
+    """
+    rows = (await db.execute(select(RiskSettings))).scalars().all()
+    changed = 0
+    for row in rows:
+        if not row.emergency_stop:
+            row.emergency_stop = True
+            changed += 1
+        row.bot_enabled = False
+
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            event="admin_emergency_stop_all",
+            detail={
+                "accounts_affected": len(rows),
+                "accounts_newly_stopped": changed,
+                "positions_closed": 0,
+                "actor_email": admin.email,
+            },
+        )
+    )
+    await db.commit()
+
+    return EmergencyStopAllResult(
+        stopped_accounts=len(rows),
+        positions_closed=0,
+        detail=(
+            "Automated trading halted on every account. Open positions were "
+            "left untouched and can still be managed manually."
+        ),
+    )
+
+
+async def _db_ok(db: AsyncSession) -> bool | None:
+    try:
+        await db.execute(select(1))
+        return True
+    except Exception:  # noqa: BLE001 - reported as DOWN, not raised
+        return False
+
+
+def _real_allowed() -> bool:
+    from ..config import get_settings
+
+    return bool(get_settings().ALLOW_REAL_TRADING)

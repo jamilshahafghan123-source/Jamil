@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from .config import settings
 from .db import SessionLocal, init_models
 from .models import RiskSettings, User
-from .routers import account, analysis, auth, risk, trading, ws
+from .routers import account, admin, analysis, auth, risk, trading, ws
 from .security import hash_password
 from .services import bot
 from .services.mt5_client import mt5
@@ -91,6 +91,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(analysis.router)
