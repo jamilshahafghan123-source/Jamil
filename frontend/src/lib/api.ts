@@ -17,6 +17,7 @@
   OrderLog,
   RecoveryStatus,
   RiskSettings,
+  SessionMap,
   SecurityOverview,
   Signal,
   Timeframe,
@@ -244,6 +245,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     }),
+
+  /** Session boxes and previous-period levels for the chart overlay. */
+  sessionMap: (timeframe: string, signal?: AbortSignal) =>
+    request<SessionMap>(
+      `/api/analysis/sessions?timeframe=${encodeURIComponent(timeframe)}`,
+      signal ? { signal } : {},
+    ),
 
   // ---- Customer chart drawings. Ownership enforced server-side. -------
 

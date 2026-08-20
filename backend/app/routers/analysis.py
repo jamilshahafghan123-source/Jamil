@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,7 @@ from ..schemas import SignalOut
 from ..services import bot
 from ..services.indicators import TIMEFRAMES
 from ..services.mt5_client import BridgeError, mt5
+from ..services import sessions as session_map
 
 router = APIRouter(
     prefix="/api/analysis",
@@ -106,3 +109,47 @@ async def bars(
         }
     except BridgeError as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"MT5 bridge: {e}")
+
+
+@router.get("/sessions")
+async def market_sessions(
+    timeframe: str = Query("M15"),
+    count: int = Query(500, ge=50, le=1000),
+    days: int = Query(3, ge=1, le=7),
+    _: User = Depends(current_user),
+) -> dict:
+    """Session boxes and previous-period levels for the chart.
+
+    Both are measured from the same bars the chart is showing, so a level
+    drawn here is one the user can see the price making. A window the
+    loaded history does not reach is omitted rather than estimated.
+    """
+    if timeframe not in TIMEFRAMES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"timeframe must be one of {TIMEFRAMES}",
+        )
+    try:
+        bars = await mt5.bars(settings.SYMBOL, timeframe, count)
+    except BridgeError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"MT5 bridge: {e}")
+
+    now = datetime.now(timezone.utc)
+    return {
+        "symbol": settings.SYMBOL,
+        "timeframe": timeframe,
+        "sessions": session_map.session_ranges(bars, days=days, now=now),
+        "previous_levels": session_map.previous_levels(bars, now=now),
+        "active": [
+            {"session": s.name.value, "display_name": s.display_name,
+             "colour": s.colour}
+            for s in session_map.active_at(now)
+        ],
+        "definitions": [
+            {"session": s.name.value, "display_name": s.display_name,
+             "timezone": s.tz, "colour": s.colour,
+             "opens_local": s.opens.strftime("%H:%M"),
+             "closes_local": s.closes.strftime("%H:%M")}
+            for s in session_map.SESSIONS
+        ],
+    }

@@ -2848,6 +2848,23 @@ th.right {
 .jg-draw-layer.drawing { cursor: crosshair; pointer-events: auto; }
 .jg-draw-layer svg { display: block; overflow: visible; }
 
+/* Session boxes are the bottom layer of the three: market context sits
+   behind both the engine's readout and the customer's own work, and never
+   takes the pointer. */
+.jg-session-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.jg-session-layer svg { display: block; overflow: hidden; }
+.jg-session-layer text {
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
 /* AI overlays sit under the customer's drawings and never take the pointer:
    they are a readout of what the engine measured, not something to grab. */
 .jg-ai-layer {

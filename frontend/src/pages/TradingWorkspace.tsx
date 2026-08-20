@@ -11,6 +11,7 @@ import {
 import { AIPanel, type AISetup } from "../components/AIPanel";
 import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
 import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLayer";
+import { SessionLayer } from "../components/SessionLayer";
 import {
   AIOverlayLayer,
   type AIStructureMark,
@@ -25,6 +26,7 @@ import type {
   DemoTrade,
   InstrumentInfo,
   RiskSettings,
+  SessionMap,
   Signal,
   Timeframe,
 } from "../lib/types";
@@ -91,6 +93,13 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [showAI, setShowAI] = useState(true);
   const [aiSetup, setAiSetup] = useState<AISetup | null>(null);
 
+  // J Gold AI Session Map. Fetched on the same beat as the bars it is
+  // measured from, so the boxes can never describe a different window than
+  // the candles on screen.
+  const [sessionMap, setSessionMap] = useState<SessionMap | null>(null);
+  const [showSessions, setShowSessions] = useState(false);
+  const [showPrevLevels, setShowPrevLevels] = useState(false);
+
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
   const { configs, setConfigs, overlays, readouts } = useIndicators(bars);
@@ -127,6 +136,22 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     }
   }, [symbol, timeframe]);
 
+  /**
+   * Session boxes and previous-period levels.
+   *
+   * Loaded only while one of the two overlays is switched on: a customer
+   * who never opens the session map should not pay for the request on
+   * every poll.
+   */
+  const loadSessions = useCallback(async () => {
+    if (!showSessions && !showPrevLevels) return;
+    try {
+      setSessionMap(await api.sessionMap(timeframe));
+    } catch {
+      /* the overlay stays as it was; the chart itself is unaffected */
+    }
+  }, [timeframe, showSessions, showPrevLevels]);
+
   const loadAccount = useCallback(async () => {
     try {
       setAccount(await api.demoAccount());
@@ -161,6 +186,10 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   }, [loadBars]);
 
   useEffect(() => {
+    void loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
     void loadAccount();
     void loadTrades();
     void loadSignals();
@@ -177,9 +206,10 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     const t = window.setInterval(() => {
       void loadAccount();
       void loadBars();
+      void loadSessions();
     }, 15_000);
     return () => window.clearInterval(t);
-  }, [loadAccount, loadBars]);
+  }, [loadAccount, loadBars, loadSessions]);
 
   const price = account?.market_price ?? null;
   const spread = price ? price.ask - price.bid : null;
@@ -236,6 +266,29 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     }
     return out.slice(0, 12);
   }, [showAI, analysis, aiSetup]);
+
+  /**
+   * Previous-period levels (section 10).
+   *
+   * Kept in their own memo and their own colour so they never read as part
+   * of the AI's opinion — PDH is a fact about yesterday, not a call.
+   */
+  const previousLevelLines: PriceLine[] = useMemo(() => {
+    if (!showPrevLevels || !sessionMap) return [];
+    const out: PriceLine[] = [];
+    for (const level of sessionMap.previous_levels) {
+      out.push({ price: level.high, label: level.high_label,
+                 colour: "#9aa3b0", dashed: true });
+      out.push({ price: level.low, label: level.low_label,
+                 colour: "#9aa3b0", dashed: true });
+    }
+    return out;
+  }, [showPrevLevels, sessionMap]);
+
+  const chartLines = useMemo(
+    () => [...aiLines, ...previousLevelLines],
+    [aiLines, previousLevelLines],
+  );
 
   /**
    * Structural AI overlays: measured imbalances, order blocks, liquidity
@@ -443,6 +496,22 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         >
           Clear AI
         </button>
+        <button
+          type="button"
+          className={showSessions ? "btn sm active" : "btn sm"}
+          onClick={() => setShowSessions((v) => !v)}
+          title="Sydney, Tokyo, London and New York ranges"
+        >
+          Sessions
+        </button>
+        <button
+          type="button"
+          className={showPrevLevels ? "btn sm active" : "btn sm"}
+          onClick={() => setShowPrevLevels((v) => !v)}
+          title="Previous day, week and month high/low"
+        >
+          Prev levels
+        </button>
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           Reset demo
         </button>
@@ -465,6 +534,16 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           label="Realised P/L"
           value={money(acct?.realized_pnl, acct?.currency)}
           tone={pnlClass(acct?.realized_pnl)}
+        />
+        <Metric
+          label="Sessions open"
+          value={
+            sessionMap?.active.length
+              ? sessionMap.active.map((a) => a.display_name).join(", ")
+              : showSessions || showPrevLevels
+                ? "None"
+                : "—"
+          }
         />
         <Metric
           label="Market"
@@ -545,10 +624,16 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
               <TradingChart
                 bars={bars}
               markers={markers}
-              priceLines={aiLines}
+              priceLines={chartLines}
                 overlays={overlays}
                 height={460}
                 onCoordinates={setCoords}
+              />
+              <SessionLayer
+                coords={coords}
+                ranges={showSessions ? (sessionMap?.sessions ?? []) : []}
+                showFill
+                showHighLow
               />
               <AIOverlayLayer
                 coords={coords}

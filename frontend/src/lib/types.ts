@@ -662,3 +662,47 @@ export interface ApiDrawing {
   created_at: string;
   updated_at: string;
 }
+
+/** J Gold AI Session Map (section 8). Measured from bars, never assumed. */
+export interface SessionRange {
+  session: "SYDNEY" | "TOKYO" | "LONDON" | "NEW_YORK";
+  display_name: string;
+  colour: string;
+  date: string;
+  start: string;
+  end: string;
+  /** False while the session is still running. */
+  complete: boolean;
+  high: number;
+  low: number;
+  open: number | null;
+}
+
+/** PDH/PDL, PWH/PWL and previous month extremes (section 10). */
+export interface PreviousLevel {
+  period: "DAY" | "WEEK" | "MONTH";
+  start: string;
+  end: string;
+  high: number;
+  high_label: string;
+  low: number;
+  low_label: string;
+}
+
+export interface SessionDefinition {
+  session: string;
+  display_name: string;
+  timezone: string;
+  colour: string;
+  opens_local: string;
+  closes_local: string;
+}
+
+export interface SessionMap {
+  symbol: string;
+  timeframe: string;
+  sessions: SessionRange[];
+  previous_levels: PreviousLevel[];
+  active: { session: string; display_name: string; colour: string }[];
+  definitions: SessionDefinition[];
+}
