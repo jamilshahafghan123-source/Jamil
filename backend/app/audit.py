@@ -43,6 +43,8 @@ BACKUP_FAILED = "backup.failed"
 BACKUP_VERIFIED = "backup.verified"
 RESTORE_REQUESTED = "backup.restore_requested"
 RESTORE_RESULT = "backup.restore_result"
+DEMO_POSITION_OPENED = "demo.position_opened"
+DEMO_RESET = "demo.reset"
 
 
 async def record(

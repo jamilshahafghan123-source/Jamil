@@ -500,3 +500,93 @@ class PasswordResetToken(Base):
     used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class DemoPositionSide(str, enum.Enum):
+    BUY = "BUY"
+    SELL = "SELL"
+
+
+class TradeSource(str, enum.Enum):
+    MANUAL = "MANUAL"
+    AI_ASSIST = "AI_ASSIST"
+    AI_AUTO = "AI_AUTO"
+
+
+class DemoAccount(Base):
+    """A J Gold AI internal demo account. Virtual money, never broker funds.
+
+    This is NOT the MT5 demo account. Nothing here is ever sent to a broker,
+    and the balance cannot be withdrawn because it does not exist anywhere
+    but this row.
+    """
+
+    __tablename__ = "demo_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, index=True, nullable=False
+    )
+    starting_balance: Mapped[float] = mapped_column(Float, default=100000.0)
+    balance: Mapped[float] = mapped_column(Float, default=100000.0)
+    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    reset_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class DemoPosition(Base):
+    """An open virtual position."""
+
+    __tablename__ = "demo_positions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("demo_accounts.id"), index=True, nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    side: Mapped[DemoPositionSide] = mapped_column(Enum(DemoPositionSide))
+    volume: Mapped[float] = mapped_column(Float)
+    entry_price: Mapped[float] = mapped_column(Float)
+    stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[TradeSource] = mapped_column(
+        Enum(TradeSource), default=TradeSource.MANUAL
+    )
+    #: Set when the position came from an AI signal, for the history panel.
+    signal_confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signal_rr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+
+class DemoTrade(Base):
+    """A closed virtual trade. Append-only history."""
+
+    __tablename__ = "demo_trades"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("demo_accounts.id"), index=True, nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    side: Mapped[DemoPositionSide] = mapped_column(Enum(DemoPositionSide))
+    volume: Mapped[float] = mapped_column(Float)
+    entry_price: Mapped[float] = mapped_column(Float)
+    exit_price: Mapped[float] = mapped_column(Float)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[TradeSource] = mapped_column(
+        Enum(TradeSource), default=TradeSource.MANUAL
+    )
+    #: MANUAL_CLOSE | STOP_LOSS | TAKE_PROFIT | RESET
+    close_reason: Mapped[str] = mapped_column(String(32), default="MANUAL_CLOSE")
+    signal_confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signal_rr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )

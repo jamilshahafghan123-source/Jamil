@@ -19,6 +19,7 @@ from .routers import (
     admin,
     analysis,
     auth,
+    demo,
     risk,
     security,
     support,
@@ -105,6 +106,7 @@ app.add_middleware(
 )
 
 app.include_router(admin.router)
+app.include_router(demo.router)
 app.include_router(security.router)
 app.include_router(security.admin_router)
 app.include_router(support.router)
