@@ -222,6 +222,321 @@ export function tickVolumeAverage(bars: Bar[], period = 20): Series {
   return out;
 }
 
+/**
+ * Weighted moving average: linear weights, heaviest on the newest bar.
+ */
+export function wma(bars: Bar[], period: number): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  if (period <= 0) return out;
+  const divisor = (period * (period + 1)) / 2;
+  for (let i = period - 1; i < bars.length; i++) {
+    let total = 0;
+    for (let k = 0; k < period; k++) {
+      total += bars[i - period + 1 + k].close * (k + 1);
+    }
+    out[i] = total / divisor;
+  }
+  return out;
+}
+
+/**
+ * Hull moving average: WMA(2*WMA(n/2) - WMA(n)) over sqrt(n).
+ *
+ * Built from the WMA above rather than approximated, so it keeps the
+ * responsiveness that is the whole reason to choose it.
+ */
+export function hma(bars: Bar[], period: number): Series {
+  const half = Math.max(1, Math.round(period / 2));
+  const root = Math.max(1, Math.round(Math.sqrt(period)));
+  const fast = wma(bars, half);
+  const slow = wma(bars, period);
+  const raw: Bar[] = bars.map((bar, i) => ({
+    ...bar,
+    close: fast[i] != null && slow[i] != null
+      ? 2 * (fast[i] as number) - (slow[i] as number)
+      : NaN,
+  }));
+  const smoothed = wma(raw, root);
+  return smoothed.map((v) => (v == null || Number.isNaN(v) ? null : v));
+}
+
+/** Volume-weighted moving average, using tick volume as the weight. */
+export function vwma(bars: Bar[], period: number): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  if (period <= 0) return out;
+  for (let i = period - 1; i < bars.length; i++) {
+    let priceVolume = 0;
+    let volume = 0;
+    for (let k = i - period + 1; k <= i; k++) {
+      const v = bars[k].tick_volume ?? 0;
+      priceVolume += bars[k].close * v;
+      volume += v;
+    }
+    out[i] = volume > 0 ? priceVolume / volume : null;
+  }
+  return out;
+}
+
+/** Donchian channel: the highest high and lowest low of the last n bars. */
+export function donchian(bars: Bar[], period: number): {
+  upper: Series; middle: Series; lower: Series;
+} {
+  const upper: Series = new Array(bars.length).fill(null);
+  const lower: Series = new Array(bars.length).fill(null);
+  const middle: Series = new Array(bars.length).fill(null);
+  for (let i = period - 1; i < bars.length; i++) {
+    let high = -Infinity;
+    let low = Infinity;
+    for (let k = i - period + 1; k <= i; k++) {
+      high = Math.max(high, bars[k].high);
+      low = Math.min(low, bars[k].low);
+    }
+    upper[i] = high;
+    lower[i] = low;
+    middle[i] = (high + low) / 2;
+  }
+  return { upper, middle, lower };
+}
+
+/** Keltner channel: an EMA centre with ATR-scaled bands. */
+export function keltner(bars: Bar[], period = 20, multiplier = 2): {
+  upper: Series; middle: Series; lower: Series;
+} {
+  const middle = ema(bars, period);
+  const range = atr(bars, period);
+  const upper: Series = middle.map((m, i) =>
+    m != null && range[i] != null ? m + multiplier * (range[i] as number) : null);
+  const lower: Series = middle.map((m, i) =>
+    m != null && range[i] != null ? m - multiplier * (range[i] as number) : null);
+  return { upper, middle, lower };
+}
+
+/**
+ * Supertrend: an ATR band that flips side when price closes through it.
+ *
+ * The band ratchets — it only ever tightens towards price while the trend
+ * holds — which is what stops it whipsawing on every bar.
+ */
+export function supertrend(bars: Bar[], period = 10, multiplier = 3): {
+  line: Series; direction: (1 | -1 | null)[];
+} {
+  const range = atr(bars, period);
+  const line: Series = new Array(bars.length).fill(null);
+  const direction: (1 | -1 | null)[] = new Array(bars.length).fill(null);
+  let upper = Infinity;
+  let lower = -Infinity;
+  let trend: 1 | -1 = 1;
+
+  for (let i = 0; i < bars.length; i++) {
+    const a = range[i];
+    if (a == null) continue;
+    const mid = (bars[i].high + bars[i].low) / 2;
+    const rawUpper = mid + multiplier * a;
+    const rawLower = mid - multiplier * a;
+    const prevClose = i > 0 ? bars[i - 1].close : bars[i].close;
+
+    upper = rawUpper < upper || prevClose > upper ? rawUpper : upper;
+    lower = rawLower > lower || prevClose < lower ? rawLower : lower;
+
+    if (bars[i].close > upper) trend = 1;
+    else if (bars[i].close < lower) trend = -1;
+
+    direction[i] = trend;
+    line[i] = trend === 1 ? lower : upper;
+  }
+  return { line, direction };
+}
+
+/** Stochastic oscillator: where close sits in the recent high-low range. */
+export function stochastic(bars: Bar[], period = 14, smooth = 3): {
+  k: Series; d: Series;
+} {
+  const k: Series = new Array(bars.length).fill(null);
+  for (let i = period - 1; i < bars.length; i++) {
+    let high = -Infinity;
+    let low = Infinity;
+    for (let n = i - period + 1; n <= i; n++) {
+      high = Math.max(high, bars[n].high);
+      low = Math.min(low, bars[n].low);
+    }
+    // A flat range would divide by zero; the midpoint is the honest answer.
+    k[i] = high === low ? 50 : ((bars[i].close - low) / (high - low)) * 100;
+  }
+  const d: Series = new Array(bars.length).fill(null);
+  for (let i = 0; i < k.length; i++) {
+    const window = k.slice(Math.max(0, i - smooth + 1), i + 1)
+      .filter((v): v is number => v != null);
+    if (window.length === smooth) {
+      d[i] = window.reduce((a, b) => a + b, 0) / smooth;
+    }
+  }
+  return { k, d };
+}
+
+/** Commodity Channel Index, on the typical price. */
+export function cci(bars: Bar[], period = 20): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  const typical = bars.map((b) => (b.high + b.low + b.close) / 3);
+  for (let i = period - 1; i < bars.length; i++) {
+    const window = typical.slice(i - period + 1, i + 1);
+    const mean = window.reduce((a, b) => a + b, 0) / period;
+    const deviation =
+      window.reduce((a, b) => a + Math.abs(b - mean), 0) / period;
+    out[i] = deviation === 0 ? 0 : (typical[i] - mean) / (0.015 * deviation);
+  }
+  return out;
+}
+
+/** Rate of change, as a percentage of the price n bars ago. */
+export function roc(bars: Bar[], period = 12): Series {
+  return bars.map((bar, i) => {
+    if (i < period) return null;
+    const past = bars[i - period].close;
+    return past === 0 ? null : ((bar.close - past) / past) * 100;
+  });
+}
+
+/** Williams %R: the stochastic's mirror, on a -100..0 scale. */
+export function williamsR(bars: Bar[], period = 14): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  for (let i = period - 1; i < bars.length; i++) {
+    let high = -Infinity;
+    let low = Infinity;
+    for (let n = i - period + 1; n <= i; n++) {
+      high = Math.max(high, bars[n].high);
+      low = Math.min(low, bars[n].low);
+    }
+    out[i] = high === low ? -50 : ((high - bars[i].close) / (high - low)) * -100;
+  }
+  return out;
+}
+
+/**
+ * Wilder's ADX with its two directional components.
+ *
+ * ADX measures trend STRENGTH and says nothing about direction; +DI and
+ * -DI carry that, which is why all three are returned together rather
+ * than ADX being read as a signal on its own.
+ */
+export function adx(bars: Bar[], period = 14): {
+  adx: Series; plusDI: Series; minusDI: Series;
+} {
+  const n = bars.length;
+  const adxOut: Series = new Array(n).fill(null);
+  const plusDI: Series = new Array(n).fill(null);
+  const minusDI: Series = new Array(n).fill(null);
+  if (n <= period * 2) return { adx: adxOut, plusDI, minusDI };
+
+  const plusDM: number[] = [0];
+  const minusDM: number[] = [0];
+  const trueRange: number[] = [0];
+  for (let i = 1; i < n; i++) {
+    const up = bars[i].high - bars[i - 1].high;
+    const down = bars[i - 1].low - bars[i].low;
+    plusDM.push(up > down && up > 0 ? up : 0);
+    minusDM.push(down > up && down > 0 ? down : 0);
+    trueRange.push(Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low - bars[i - 1].close),
+    ));
+  }
+
+  const smooth = (values: number[]) => {
+    const out: number[] = new Array(n).fill(0);
+    let total = values.slice(1, period + 1).reduce((a, b) => a + b, 0);
+    out[period] = total;
+    for (let i = period + 1; i < n; i++) {
+      total = total - total / period + values[i];
+      out[i] = total;
+    }
+    return out;
+  };
+
+  const sTR = smooth(trueRange);
+  const sPlus = smooth(plusDM);
+  const sMinus = smooth(minusDM);
+
+  const dx: number[] = new Array(n).fill(0);
+  for (let i = period; i < n; i++) {
+    if (sTR[i] === 0) continue;
+    const p = (sPlus[i] / sTR[i]) * 100;
+    const m = (sMinus[i] / sTR[i]) * 100;
+    plusDI[i] = p;
+    minusDI[i] = m;
+    dx[i] = p + m === 0 ? 0 : (Math.abs(p - m) / (p + m)) * 100;
+  }
+
+  let running = dx.slice(period, period * 2).reduce((a, b) => a + b, 0) / period;
+  adxOut[period * 2 - 1] = running;
+  for (let i = period * 2; i < n; i++) {
+    running = (running * (period - 1) + dx[i]) / period;
+    adxOut[i] = running;
+  }
+  return { adx: adxOut, plusDI, minusDI };
+}
+
+/** On-balance volume, signed by the close-to-close direction. */
+export function obv(bars: Bar[]): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  let total = 0;
+  for (let i = 0; i < bars.length; i++) {
+    if (i > 0) {
+      const v = bars[i].tick_volume ?? 0;
+      if (bars[i].close > bars[i - 1].close) total += v;
+      else if (bars[i].close < bars[i - 1].close) total -= v;
+    }
+    out[i] = total;
+  }
+  return out;
+}
+
+/** Money Flow Index: a volume-weighted RSI on the typical price. */
+export function mfi(bars: Bar[], period = 14): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  const typical = bars.map((b) => (b.high + b.low + b.close) / 3);
+  for (let i = period; i < bars.length; i++) {
+    let positive = 0;
+    let negative = 0;
+    for (let k = i - period + 1; k <= i; k++) {
+      const flow = typical[k] * (bars[k].tick_volume ?? 0);
+      if (typical[k] > typical[k - 1]) positive += flow;
+      else if (typical[k] < typical[k - 1]) negative += flow;
+    }
+    out[i] = negative === 0 ? 100 : 100 - 100 / (1 + positive / negative);
+  }
+  return out;
+}
+
+/** Standard deviation of closes — the raw volatility measure. */
+export function standardDeviation(bars: Bar[], period = 20): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  for (let i = period - 1; i < bars.length; i++) {
+    const window = bars.slice(i - period + 1, i + 1).map((b) => b.close);
+    const mean = window.reduce((a, b) => a + b, 0) / period;
+    const variance =
+      window.reduce((a, b) => a + (b - mean) ** 2, 0) / period;
+    out[i] = Math.sqrt(variance);
+  }
+  return out;
+}
+
+/** Classic floor-trader pivots from the previous bar's range. */
+export function pivotPoints(bars: Bar[]): {
+  pivot: number; r1: number; r2: number; s1: number; s2: number;
+} | null {
+  if (bars.length < 2) return null;
+  const previous = bars[bars.length - 2];
+  const pivot = (previous.high + previous.low + previous.close) / 3;
+  return {
+    pivot,
+    r1: 2 * pivot - previous.low,
+    r2: pivot + (previous.high - previous.low),
+    s1: 2 * pivot - previous.high,
+    s2: pivot - (previous.high - previous.low),
+  };
+}
+
 export type IndicatorKind =
   | "SMA"
   | "EMA"
@@ -230,7 +545,21 @@ export type IndicatorKind =
   | "RSI"
   | "MACD"
   | "ATR"
-  | "VOLUME";
+  | "VOLUME"
+  | "WMA"
+  | "HMA"
+  | "VWMA"
+  | "DONCHIAN"
+  | "KELTNER"
+  | "SUPERTREND"
+  | "STOCHASTIC"
+  | "CCI"
+  | "ROC"
+  | "WILLIAMS_R"
+  | "ADX"
+  | "OBV"
+  | "MFI"
+  | "STDDEV";
 
 export interface IndicatorConfig {
   id: string;
@@ -241,7 +570,10 @@ export interface IndicatorConfig {
 }
 
 /** Which indicators draw on the price chart rather than reading out below. */
-export const OVERLAY_KINDS: IndicatorKind[] = ["SMA", "EMA", "BOLLINGER", "VWAP"];
+export const OVERLAY_KINDS: IndicatorKind[] = [
+  "SMA", "EMA", "WMA", "HMA", "VWMA", "BOLLINGER", "VWAP",
+  "DONCHIAN", "KELTNER", "SUPERTREND",
+];
 
 export function isOverlay(kind: IndicatorKind): boolean {
   return OVERLAY_KINDS.includes(kind);
@@ -256,6 +588,44 @@ export const DEFAULT_PERIOD: Record<IndicatorKind, number> = {
   MACD: 12,
   ATR: 14,
   VOLUME: 20,
+  WMA: 20,
+  HMA: 21,
+  VWMA: 20,
+  DONCHIAN: 20,
+  KELTNER: 20,
+  SUPERTREND: 10,
+  STOCHASTIC: 14,
+  CCI: 20,
+  ROC: 12,
+  WILLIAMS_R: 14,
+  ADX: 14,
+  OBV: 0,
+  MFI: 14,
+  STDDEV: 20,
+};
+
+/** Which family each indicator belongs to, for the library UI (section 17). */
+export const INDICATOR_GROUP: Record<IndicatorKind, string> = {
+  SMA: "Trend", EMA: "Trend", WMA: "Trend", HMA: "Trend", VWMA: "Trend",
+  BOLLINGER: "Trend", DONCHIAN: "Trend", KELTNER: "Trend",
+  SUPERTREND: "Trend",
+  RSI: "Momentum", MACD: "Momentum", STOCHASTIC: "Momentum",
+  CCI: "Momentum", ROC: "Momentum", WILLIAMS_R: "Momentum", ADX: "Momentum",
+  ATR: "Volatility", STDDEV: "Volatility",
+  VOLUME: "Volume", OBV: "Volume", MFI: "Volume", VWAP: "Volume",
+};
+
+/** Human labels, so the picker is not a wall of abbreviations. */
+export const INDICATOR_LABEL: Record<IndicatorKind, string> = {
+  SMA: "Simple MA", EMA: "Exponential MA", WMA: "Weighted MA",
+  HMA: "Hull MA", VWMA: "Volume-weighted MA",
+  BOLLINGER: "Bollinger Bands", DONCHIAN: "Donchian Channels",
+  KELTNER: "Keltner Channels", SUPERTREND: "Supertrend",
+  VWAP: "VWAP (window)",
+  RSI: "RSI", MACD: "MACD", STOCHASTIC: "Stochastic", CCI: "CCI",
+  ROC: "Rate of Change", WILLIAMS_R: "Williams %R", ADX: "ADX / DMI",
+  ATR: "ATR", STDDEV: "Standard Deviation",
+  VOLUME: "Tick Volume", OBV: "On-Balance Volume", MFI: "Money Flow Index",
 };
 
 /** Last non-null value of a series, for the readout strip. */

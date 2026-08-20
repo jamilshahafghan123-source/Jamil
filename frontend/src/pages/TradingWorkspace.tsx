@@ -13,6 +13,7 @@ import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
 import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLayer";
 import { SessionLayer } from "../components/SessionLayer";
 import { SymbolSearch } from "../components/SymbolSearch";
+import { TechnicalSummary } from "../components/TechnicalSummary";
 import {
   AIOverlayLayer,
   type AIStructureMark,
@@ -101,6 +102,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [showSessions, setShowSessions] = useState(false);
   const [showPrevLevels, setShowPrevLevels] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sideTab, setSideTab] = useState<"ai" | "technicals">("ai");
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
@@ -755,6 +757,32 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
             {canOpen ? `Place ${side} order` : "Trading unavailable"}
           </button>
 
+          <div className="jg-side-tabs" role="tablist" aria-label="Sidebar">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "ai"}
+              className={sideTab === "ai" ? "jg-chip active" : "jg-chip"}
+              onClick={() => setSideTab("ai")}
+            >
+              AI analysis
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "technicals"}
+              className={sideTab === "technicals" ? "jg-chip active" : "jg-chip"}
+              onClick={() => setSideTab("technicals")}
+            >
+              Technicals
+            </button>
+          </div>
+
+          {sideTab === "technicals" && (
+            <TechnicalSummary bars={bars} timeframe={timeframe} />
+          )}
+
+          <div hidden={sideTab !== "ai"}>
           <AIPanel
             risk={risk}
             onAnalysis={(next) => {
@@ -777,6 +805,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
               );
             }}
           />
+          </div>
         </aside>
       </div>
 

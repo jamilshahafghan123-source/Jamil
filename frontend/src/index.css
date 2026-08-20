@@ -2999,3 +2999,85 @@ th.right {
   .jg-symbol-pick { grid-template-columns: 72px 1fr; row-gap: 2px; }
   .jg-symbol-status { grid-column: 2; justify-self: start; }
 }
+
+/* ------------------------------------------- indicator library (§17, 23) */
+.jg-ind-search {
+  width: 100%;
+  margin: 8px 0 6px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #23262d);
+  background: var(--bg-2, #0f1115);
+  color: inherit;
+  font-size: 12px;
+}
+.jg-ind-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line, #23262d);
+}
+.jg-ind-group { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.jg-ind-heading {
+  width: 100%;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+  margin-bottom: 2px;
+}
+
+/* ------------------------------------------------ technical summary (§32) */
+.jg-tech { padding: 4px 0 2px; }
+.jg-tech-gauges {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.jg-tech-gauge {
+  border: 1px solid var(--line, #23262d);
+  border-radius: 7px;
+  padding: 8px 6px;
+  text-align: center;
+  background: var(--bg-2, #0f1115);
+}
+.jg-tech-gauge-label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+  margin-bottom: 4px;
+}
+.jg-tech-gauge-value { font-size: 12px; line-height: 1.2; }
+/* Green and red are reserved for market direction, never for decoration. */
+.jg-tech-gauge.strong_buy .jg-tech-gauge-value { color: #3fb950; }
+.jg-tech-gauge.buy .jg-tech-gauge-value { color: #6fbf73; }
+.jg-tech-gauge.neutral .jg-tech-gauge-value { color: var(--muted, #8b93a1); }
+.jg-tech-gauge.sell .jg-tech-gauge-value { color: #e8705f; }
+.jg-tech-gauge.strong_sell .jg-tech-gauge-value { color: #f4564a; }
+.jg-tech-section { margin-bottom: 10px; }
+.jg-tech-heading {
+  margin: 0 0 4px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-tech-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.jg-tech-table td { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.jg-tech-value { text-align: right; font-variant-numeric: tabular-nums; }
+.jg-tech-vote { text-align: right; width: 54px; }
+.jg-tech-vote.v1 { color: #3fb950; }
+.jg-tech-vote.v-1 { color: #f4564a; }
+.jg-tech-vote.v0 { color: var(--muted, #8b93a1); }
+.jg-tech-note {
+  font-size: 10px;
+  color: var(--muted, #8b93a1);
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.jg-side-tabs { display: flex; gap: 5px; margin: 14px 0 8px; }
