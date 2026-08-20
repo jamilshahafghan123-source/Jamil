@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
 from ..models import DailyStat, RiskSettings, TradingMode
+from . import opportunity
 
 
 @dataclass
@@ -27,12 +28,49 @@ class RiskDecision:
     risk_amount: float = 0.0
     sl_distance: float = 0.0
     computed_rr: float = 0.0
+    #: Which setup class's thresholds were applied, and what they were.
+    #: Section 59 requires a refusal to say exactly what it wanted.
+    setup_class: str = "STANDARD"
+    required_confidence: int = 0
+    required_rr: float = 0.0
 
     def block(self, reason: str) -> "RiskDecision":
         self.approved = False
         self.volume = 0.0
         self.reasons.append(reason)
         return self
+
+
+def requirement_class(setup_class: str | None) -> str:
+    """Name the class, defaulting to STANDARD for an unlabelled signal.
+
+    An unrecognised label must never fall through to something more
+    permissive, so anything unknown is treated as STANDARD rather than as
+    a scalp.
+    """
+    try:
+        return opportunity.SetupClass(str(setup_class).upper()).value
+    except (ValueError, AttributeError):
+        return opportunity.SetupClass.STANDARD.value
+
+
+def _requirement_for(settings_row, setup_class, regime):
+    """Resolve the thresholds for this signal.
+
+    The account settings go in as a tightening only — see
+    opportunity.requirements_for — so no configuration can lower this
+    platform below its own floor.
+    """
+    try:
+        regime_value = opportunity.Regime(str(regime).upper()) if regime else None
+    except ValueError:
+        regime_value = None
+    return opportunity.requirements_for(
+        opportunity.SetupClass(requirement_class(setup_class)),
+        regime_value,
+        account_min_confidence=settings_row.min_confidence,
+        account_min_rr=settings_row.min_rr,
+    )
 
 
 def _round_to_step(volume: float, step: float) -> float:
@@ -103,6 +141,8 @@ def evaluate(
     stats: DailyStat | None,
     server_allows_real: bool,
     requested_volume: float | None = None,
+    setup_class: str | None = None,
+    regime: str | None = None,
 ) -> RiskDecision:
     """Run every gate. Order matters: cheapest and most absolute first."""
     d = RiskDecision(approved=True)
@@ -172,15 +212,35 @@ def evaluate(
         )
 
     # ---- 5. Signal quality --------------------------------------------
-    if confidence < settings_row.min_confidence:
+    #
+    # Setup-aware thresholds (sections 42-47). A scalp and a swing setup
+    # are different products and are held to different, individually
+    # calibrated standards. `requirements_for` treats the account's own
+    # settings as a TIGHTENING only and clamps everything to an absolute
+    # floor, so this can never end up more permissive than the platform's
+    # own minimum however it is configured.
+    requirement = _requirement_for(settings_row, setup_class, regime)
+    d.setup_class = requirement_class(setup_class)
+    d.required_confidence = requirement.min_confidence
+    d.required_rr = requirement.min_rr
+
+    if confidence < requirement.min_confidence:
         return d.block(
-            f"confidence {confidence} below minimum {settings_row.min_confidence}"
+            f"confidence {confidence} below {requirement.min_confidence} "
+            f"required for a {d.setup_class} setup"
         )
 
+    # Spread is gated by whichever limit is TIGHTER — the account's or the
+    # setup class's. A scalp's edge is small enough that spread alone can
+    # erase it, so its own limit is stricter than the account default.
     spread = float(tick.get("spread_points") or 0.0)
-    if spread > settings_row.max_spread_points:
+    spread_limit = min(
+        float(settings_row.max_spread_points), requirement.max_spread_points
+    )
+    if spread > spread_limit:
         return d.block(
-            f"spread {spread:.0f} points exceeds max {settings_row.max_spread_points}"
+            f"spread {spread:.0f} points exceeds max {spread_limit:.0f} "
+            f"for a {d.setup_class} setup"
         )
 
     # ---- 6. Order sanity ----------------------------------------------
@@ -199,9 +259,10 @@ def evaluate(
         return d.block("stop loss distance is zero")
 
     d.computed_rr = round(tp_distance / sl_distance, 2)
-    if d.computed_rr < settings_row.min_rr:
+    if d.computed_rr < requirement.min_rr:
         return d.block(
-            f"risk/reward {d.computed_rr} below minimum {settings_row.min_rr}"
+            f"risk/reward {d.computed_rr} below {requirement.min_rr} "
+            f"required for a {d.setup_class} setup"
         )
 
     # Broker minimum stop distance (points -> price).
