@@ -198,3 +198,105 @@ class DailyStat(Base):
     trades_opened: Mapped[int] = mapped_column(Integer, default=0)
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     start_balance: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class TicketCategory(str, enum.Enum):
+    LOGIN = "LOGIN"
+    ACCOUNT = "ACCOUNT"
+    SUBSCRIPTION = "SUBSCRIPTION"
+    PAYMENT = "PAYMENT"
+    BROKER = "BROKER"
+    DEPOSIT_WITHDRAW = "DEPOSIT_WITHDRAW"
+    TRADING = "TRADING"
+    DEMO = "DEMO"
+    CHART = "CHART"
+    AI = "AI"
+    TECHNICAL = "TECHNICAL"
+    SECURITY = "SECURITY"
+    OTHER = "OTHER"
+
+
+class TicketStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    AI_HANDLING = "AI_HANDLING"
+    NEEDS_ADMIN = "NEEDS_ADMIN"
+    RESOLVED = "RESOLVED"
+
+
+class TicketPriority(str, enum.Enum):
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class SupportTicket(Base):
+    """A support case. Owned by exactly one customer.
+
+    `safe_diagnostics` is a JSON snapshot of the state the support worker
+    could see when the ticket was raised — bot enabled, confidence against
+    its minimum, broker reachability. It is written from the permission
+    boundary's projections, which are built by allowlist, so a credential
+    cannot reach this column even if one is added to a model later.
+    """
+
+    __tablename__ = "support_tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=False
+    )
+    category: Mapped[TicketCategory] = mapped_column(
+        Enum(TicketCategory), default=TicketCategory.OTHER, index=True
+    )
+    subject: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    ai_summary: Mapped[str] = mapped_column(Text, default="")
+    safe_diagnostics: Mapped[dict] = mapped_column(JSON, default=dict)
+    priority: Mapped[TicketPriority] = mapped_column(
+        Enum(TicketPriority), default=TicketPriority.NORMAL, index=True
+    )
+    status: Mapped[TicketStatus] = mapped_column(
+        Enum(TicketStatus), default=TicketStatus.OPEN, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    messages: Mapped[list[SupportMessage]] = relationship(
+        back_populates="ticket", cascade="all, delete-orphan", order_by="SupportMessage.id"
+    )
+
+
+class SupportAuthor(str, enum.Enum):
+    CUSTOMER = "CUSTOMER"
+    SUPPORT_AI = "SUPPORT_AI"
+    ADMIN = "ADMIN"
+
+
+class SupportMessage(Base):
+    """One turn of a support conversation.
+
+    Customer text is stored verbatim as *data*. Nothing downstream parses it
+    for instructions — see app/services/support/worker.py.
+    """
+
+    __tablename__ = "support_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey("support_tickets.id"), index=True, nullable=False
+    )
+    author: Mapped[SupportAuthor] = mapped_column(Enum(SupportAuthor))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+    ticket: Mapped[SupportTicket] = relationship(back_populates="messages")

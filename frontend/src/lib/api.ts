@@ -92,6 +92,31 @@ export const api = {
     ),
 
   dashboard: () => request<DashboardSnapshot>("/api/dashboard"),
+
+  /** Permission-limited support worker. Reads only; never executes. */
+  supportAsk: (question: string) =>
+    request<{
+      answer: string;
+      escalated: boolean;
+      ticket_id: number | null;
+      category: string;
+      facts: { label: string; value: string }[];
+    }>("/api/support/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+
+  supportTickets: () =>
+    request<
+      {
+        id: number;
+        category: string;
+        subject: string;
+        status: string;
+        priority: string;
+        created_at: string;
+      }[]
+    >("/api/support/tickets"),
   deals: (days = 7) => request<Deal[]>(`/api/history/deals?days=${days}`),
   orderLogs: (limit = 50) => request<OrderLog[]>(`/api/history/orders?limit=${limit}`),
 

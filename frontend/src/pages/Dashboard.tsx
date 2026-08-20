@@ -13,6 +13,7 @@ import type {
 } from "../lib/types";
 import { Badge, Banner, Card, Empty, Spinner, Stat } from "../components/Primitives";
 import { Brand } from "../components/Brand";
+import { SupportChat } from "../components/SupportChat";
 import {
   AnalysisPanel,
   DealHistory,
@@ -520,16 +521,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
       )}
+
+      <SupportChat />
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-

@@ -1,5 +1,6 @@
 import { PLANS } from "../lib/pricing";
 import { Brand } from "../components/Brand";
+import { SupportChat } from "../components/SupportChat";
 
 /**
  * Subscription gate for CUSTOMER accounts.
@@ -62,6 +63,8 @@ export function SubscriptionRequired({
           anything. Prices are shown in GBP.
         </p>
       </section>
+
+      <SupportChat />
     </main>
   );
 }
