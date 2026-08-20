@@ -300,3 +300,53 @@ class SupportMessage(Base):
     )
 
     ticket: Mapped[SupportTicket] = relationship(back_populates="messages")
+
+
+class SubscriptionStatus(str, enum.Enum):
+    """Entitlement states. No payment provider is connected yet, so every
+    account starts at NONE and only an operator can move it."""
+
+    NONE = "NONE"
+    TRIAL = "TRIAL"
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELED = "CANCELED"
+    EXPIRED = "EXPIRED"
+
+
+class Subscription(Base):
+    """A customer's entitlement to paid platform features.
+
+    Deliberately minimal: status, which plan it refers to, and when the
+    paid period ends. There is no provider id, no amount and no payment
+    method here, because no payment provider exists yet and modelling one
+    speculatively would invite code that pretends to know things it does
+    not. When a provider is added, it becomes the authority and this row
+    becomes a cache of what it reports.
+
+    ADMIN accounts never need a row: administrators bypass entitlement.
+    """
+
+    __tablename__ = "subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, index=True, nullable=False
+    )
+    status: Mapped[SubscriptionStatus] = mapped_column(
+        Enum(SubscriptionStatus), default=SubscriptionStatus.NONE, index=True
+    )
+    #: "weekly" | "monthly" | "yearly", or NULL when there is no plan.
+    plan: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: End of the paid period. NULL means open-ended (e.g. a granted trial
+    #: with no expiry). A past value revokes access even while the status
+    #: still reads ACTIVE — see services/entitlements.py.
+    current_period_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

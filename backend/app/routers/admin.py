@@ -13,21 +13,42 @@ side effect of adding this router, so it is reported, not silently applied.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..deps import require_admin
-from ..models import AuditLog, RiskSettings, User, UserRole
+from ..models import (
+    AuditLog,
+    RiskSettings,
+    Subscription,
+    SubscriptionStatus,
+    User,
+    UserRole,
+)
 from ..services import health as health_svc
 from ..services import safe_mode as safe_mode_svc
 from ..services.mt5_client import mt5
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class SubscriptionIn(BaseModel):
+    status: SubscriptionStatus
+    plan: str | None = None
+    #: Days from now the paid period ends. None leaves it open-ended.
+    days: int | None = None
+
+
+class SubscriptionOut(BaseModel):
+    user_id: int
+    status: str
+    plan: str | None
+    current_period_end: datetime | None
 
 
 class EmergencyStopAllResult(BaseModel):
@@ -194,6 +215,60 @@ async def emergency_stop_all(
             "Automated trading halted on every account. Open positions were "
             "left untouched and can still be managed manually."
         ),
+    )
+
+
+@router.put("/subscriptions/{user_id}", response_model=SubscriptionOut)
+async def set_subscription(
+    user_id: int,
+    body: SubscriptionIn,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> SubscriptionOut:
+    """Set an account's entitlement by hand.
+
+    No payment provider exists yet, so without this there is no way to grant
+    access short of editing the database. It is an operator tool, not a
+    billing system: it records no amount, takes no payment details, and when
+    a provider is added that provider becomes the authority and this becomes
+    a break-glass override.
+    """
+    target = await db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+    row = (
+        await db.execute(select(Subscription).where(Subscription.user_id == user_id))
+    ).scalar_one_or_none()
+    if row is None:
+        row = Subscription(user_id=user_id)
+        db.add(row)
+
+    row.status = body.status
+    row.plan = body.plan
+    row.current_period_end = (
+        datetime.now(timezone.utc) + timedelta(days=body.days) if body.days else None
+    )
+
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            event="admin_subscription_set",
+            detail={
+                "target_user_id": user_id,
+                "status": body.status.value,
+                "plan": body.plan,
+                "days": body.days,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(row)
+    return SubscriptionOut(
+        user_id=row.user_id,
+        status=row.status.value,
+        plan=row.plan,
+        current_period_end=row.current_period_end,
     )
 
 

@@ -17,8 +17,9 @@ from sqlalchemy import select
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import RiskSettings, User
+from ..models import RiskSettings, Subscription, User
 from ..security import decode_token
+from ..services import entitlements
 from ..services.mt5_client import BridgeError, mt5
 
 log = logging.getLogger("ws")
@@ -37,6 +38,24 @@ async def live(websocket: WebSocket, token: str = Query(...)) -> None:
         user = await db.get(User, user_id)
         if user is None or not user.is_active:
             await websocket.close(code=1008, reason="unknown user")
+            return
+
+        # The live feed carries the same account data the REST routes do,
+        # so it needs the same entitlement. Router dependencies do not apply
+        # to websocket routes, so this is checked explicitly rather than
+        # left as the one unguarded way into the data.
+        sub = (
+            await db.execute(
+                select(Subscription).where(Subscription.user_id == user.id)
+            )
+        ).scalar_one_or_none()
+        if not entitlements.has_platform_access(
+            role=user.role,
+            is_active=user.is_active,
+            status=sub.status if sub else None,
+            current_period_end=sub.current_period_end if sub else None,
+        ):
+            await websocket.close(code=1008, reason="subscription required")
             return
 
     await websocket.accept()

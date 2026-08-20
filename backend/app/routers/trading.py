@@ -11,13 +11,22 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..deps import current_user, get_risk_settings, rate_limit
+from ..deps import (
+    current_user,
+    get_risk_settings,
+    rate_limit,
+    require_platform_access,
+)
 from ..models import RiskSettings, Signal, SignalAction, User
 from ..schemas import ClosePositionRequest, ManualOrderRequest
 from ..services import executor
 
 router = APIRouter(
-    prefix="/api/trading", tags=["trading"], dependencies=[Depends(rate_limit)]
+    prefix="/api/trading",
+    tags=["trading"],
+    # Gates on the router, so a route added here later is protected by
+    # default rather than shipping open.
+    dependencies=[Depends(rate_limit), Depends(require_platform_access)],
 )
 
 

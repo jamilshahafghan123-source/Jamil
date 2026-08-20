@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
 from .db import get_db
-from .models import RiskSettings, User, UserRole
+from .models import RiskSettings, Subscription, User, UserRole
+from .services import entitlements
 from .security import decode_token
 
 bearer = HTTPBearer(auto_error=False)
@@ -125,4 +126,65 @@ async def require_admin(user: User = Depends(current_user)) -> User:
     """
     if user.role is not UserRole.ADMIN:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return user
+
+
+async def _subscription_for(db: AsyncSession, user: User) -> Subscription | None:
+    return (
+        await db.execute(select(Subscription).where(Subscription.user_id == user.id))
+    ).scalar_one_or_none()
+
+
+async def require_platform_access(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Gate a paid platform feature.
+
+    ADMIN passes free. A CUSTOMER needs an entitling subscription inside
+    its paid period; an account with no row at all has none, so this fails
+    closed for every account that predates the subscriptions table.
+
+    403, not 401. A 401 makes the frontend clear the token and bounce to
+    login, which for a signed-in customer without a subscription would be a
+    loop; 403 lets the app show the subscription page instead. The message
+    names no role, plan or provider detail.
+    """
+    sub = await _subscription_for(db, user)
+    allowed = entitlements.has_platform_access(
+        role=user.role,
+        is_active=user.is_active,
+        status=sub.status if sub else None,
+        current_period_end=sub.current_period_end if sub else None,
+    )
+    if not allowed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "An active subscription is required to use this feature.",
+        )
+    return user
+
+
+async def require_demo_access(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Gate a demo feature.
+
+    Separate from require_platform_access even though the two currently
+    agree, so that opening a free demo is a change to
+    services/entitlements.py rather than a re-audit of every route.
+    """
+    sub = await _subscription_for(db, user)
+    allowed = entitlements.has_demo_access(
+        role=user.role,
+        is_active=user.is_active,
+        status=sub.status if sub else None,
+        current_period_end=sub.current_period_end if sub else None,
+    )
+    if not allowed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "An active subscription is required to use this feature.",
+        )
     return user

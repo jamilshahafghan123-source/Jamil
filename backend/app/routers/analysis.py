@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_db
-from ..deps import current_user, rate_limit
+from ..deps import current_user, rate_limit, require_platform_access
 from ..models import Signal, User
 from ..schemas import SignalOut
 from ..services import bot
@@ -16,7 +16,11 @@ from ..services.indicators import TIMEFRAMES
 from ..services.mt5_client import BridgeError, mt5
 
 router = APIRouter(
-    prefix="/api/analysis", tags=["analysis"], dependencies=[Depends(rate_limit)]
+    prefix="/api/analysis",
+    tags=["analysis"],
+    # Gates on the router, so a route added here later is protected by
+    # default rather than shipping open.
+    dependencies=[Depends(rate_limit), Depends(require_platform_access)],
 )
 
 

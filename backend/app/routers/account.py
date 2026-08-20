@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_db
-from ..deps import current_user, get_risk_settings, rate_limit
+from ..deps import (
+    current_user,
+    get_risk_settings,
+    rate_limit,
+    require_platform_access,
+)
 from ..models import OrderLog, RiskSettings, Signal, User
 from ..schemas import (
     AccountInfo,
@@ -22,7 +27,14 @@ from ..schemas import (
 from ..services import executor
 from ..services.mt5_client import BridgeError, mt5
 
-router = APIRouter(prefix="/api", tags=["account"], dependencies=[Depends(rate_limit)])
+router = APIRouter(
+    prefix="/api",
+    tags=["account"],
+    # Live broker/account data: balances, positions, ticks, history.
+    # Gates on the router so a route added here later is protected by
+    # default rather than shipping open.
+    dependencies=[Depends(rate_limit), Depends(require_platform_access)],
+)
 
 
 def _bridge_error(e: BridgeError) -> HTTPException:

@@ -8,12 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit
 from ..config import settings
 from ..db import get_db
-from ..deps import current_user, get_risk_settings, rate_limit
+from ..deps import (
+    current_user,
+    get_risk_settings,
+    rate_limit,
+    require_platform_access,
+)
 from ..models import RiskSettings, TradingMode, User
 from ..schemas import BotToggleRequest, ModeChangeRequest, RiskSettingsIn, RiskSettingsOut
 from ..services import executor
 
-router = APIRouter(prefix="/api/risk", tags=["risk"], dependencies=[Depends(rate_limit)])
+router = APIRouter(
+    prefix="/api/risk",
+    tags=["risk"],
+    # Gates on the router, so a route added here later is protected by
+    # default rather than shipping open.
+    dependencies=[Depends(rate_limit), Depends(require_platform_access)],
+)
 
 # Typed verbatim by the user before REAL money is ever at stake.
 REAL_CONFIRMATION = "I UNDERSTAND THE RISK OF REAL MONEY TRADING"
