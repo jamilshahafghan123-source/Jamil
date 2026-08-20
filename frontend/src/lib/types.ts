@@ -145,6 +145,10 @@ export interface TimeframeView {
   support_levels?: PriceLevel[];
   resistance_levels?: PriceLevel[];
   volume?: VolumeView;
+  /** Structural zones measured on this timeframe specifically. */
+  fvg?: AIZoneView[];
+  order_blocks?: AIZoneView[];
+  swings?: AISwingView[];
 }
 
 export type SetupStage = "WATCH" | "ENTRY_TRIGGER" | "CONFIRMED_SETUP";
@@ -264,6 +268,35 @@ export interface Analysis {
   volume?: VolumeView;
   setup?: TradeSetup;
   reasons?: string[];
+  /**
+   * Structural zones the deterministic engine measured on the setup
+   * timeframe. Optional because an older cached analysis will not carry
+   * them, and empty because the engine genuinely found nothing — never
+   * because the chart should invent something to fill the space.
+   */
+  zones?: {
+    fvg: AIZoneView[];
+    order_blocks: AIZoneView[];
+    liquidity: AIZoneView[];
+  };
+  swings?: AISwingView[];
+}
+
+/** One measured structural zone: an imbalance, an order block, a pool. */
+export interface AIZoneView {
+  kind: "fvg" | "order_block" | "liquidity";
+  side?: "bullish" | "bearish" | "demand" | "supply";
+  low: number;
+  high: number;
+  /** Bar the zone starts at. Absent on liquidity bands. */
+  from_time?: string;
+  label: string;
+}
+
+export interface AISwingView {
+  side: "high" | "low";
+  price: number;
+  time: string;
 }
 
 export interface RiskSettings {

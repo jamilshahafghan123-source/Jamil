@@ -11,6 +11,12 @@ import {
 import { AIPanel, type AISetup } from "../components/AIPanel";
 import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
 import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLayer";
+import {
+  AIOverlayLayer,
+  type AIStructureMark,
+  type AISwing,
+  type AIZone,
+} from "../components/AIOverlayLayer";
 import { useDrawings } from "../components/useDrawings";
 import type {
   Analysis,
@@ -19,6 +25,7 @@ import type {
   DemoTrade,
   InstrumentInfo,
   RiskSettings,
+  Signal,
   Timeframe,
 } from "../lib/types";
 
@@ -67,7 +74,8 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   >({});
   const [account, setAccount] = useState<DemoAccountResponse | null>(null);
   const [trades, setTrades] = useState<DemoTrade[]>([]);
-  const [tab, setTab] = useState<"positions" | "history">("positions");
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [tab, setTab] = useState<"positions" | "history" | "ai">("positions");
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [volume, setVolume] = useState("0.10");
@@ -135,6 +143,19 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     }
   }, []);
 
+  /**
+   * AI decision history. These are the analyses the engine actually stored,
+   * including the ones that decided NOT to trade — which are the more
+   * useful half of the record, so they are shown rather than filtered out.
+   */
+  const loadSignals = useCallback(async () => {
+    try {
+      setSignals(await api.signals(25));
+    } catch {
+      /* the tab keeps whatever it already had */
+    }
+  }, []);
+
   useEffect(() => {
     void loadBars();
   }, [loadBars]);
@@ -142,12 +163,13 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     void loadAccount();
     void loadTrades();
+    void loadSignals();
     void api.demoInstruments().then((r) => setInstruments(r.by_asset_class));
     // Risk settings supply the minimums the AI panel shows each gate
     // against. A failure leaves them null and the panel falls back to
     // documented defaults rather than inventing a threshold.
     void api.getRisk().then(setRisk).catch(() => setRisk(null));
-  }, [loadAccount, loadTrades]);
+  }, [loadAccount, loadTrades, loadSignals]);
 
   // One poll for account state. Bars refresh on the same beat rather than
   // running a second timer against the same backend.
@@ -214,6 +236,79 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     }
     return out.slice(0, 12);
   }, [showAI, analysis, aiSetup]);
+
+  /**
+   * Structural AI overlays: measured imbalances, order blocks, liquidity
+   * pools and swing points. Same rule as the AI price lines — a separate
+   * array from anything the customer drew, gated by the same toggle, and
+   * empty whenever the engine found nothing.
+   */
+  /**
+   * Prefer the row for the timeframe on screen: a structure measured on M1
+   * is a hairline on H4 and tells the customer nothing there. The setup
+   * timeframe is the fallback when the analysis did not cover this one.
+   */
+  const aiTimeframe = useMemo(
+    () => analysis?.timeframes?.find((t) => t.timeframe === timeframe),
+    [analysis, timeframe],
+  );
+
+  const aiZones: AIZone[] = useMemo(() => {
+    if (!showAI || !analysis) return [];
+    const fallback = analysis.zones;
+    const fvg = aiTimeframe?.fvg ?? fallback?.fvg ?? [];
+    const blocks = aiTimeframe?.order_blocks ?? fallback?.order_blocks ?? [];
+    const pools = aiTimeframe?.liquidity ?? fallback?.liquidity ?? [];
+    return [
+      ...fvg,
+      ...blocks,
+      ...pools.map((pool) => ({ ...pool, kind: "liquidity" as const })),
+    ].slice(0, 10);
+  }, [showAI, analysis, aiTimeframe]);
+
+  const aiSwings: AISwing[] = useMemo(() => {
+    if (!showAI) return [];
+    return (aiTimeframe?.swings ?? analysis?.swings ?? []).slice(-12);
+  }, [showAI, analysis, aiTimeframe]);
+
+  /**
+   * BOS / CHoCH are reported by the engine as booleans against the setup
+   * timeframe, so the level drawn is the swing the break happened at. When
+   * no swing is available the mark is dropped rather than guessed.
+   */
+  const aiStructure: AIStructureMark[] = useMemo(() => {
+    if (!showAI || !analysis?.structure) return [];
+    // BOS/CHoCH are reported per timeframe too, so use the displayed one
+    // when the analysis carries it. Note the two vocabularies: the
+    // per-timeframe row says "HH-HL", the structure detail says
+    // "HIGHER_HIGH_HIGHER_LOW". Both are checked rather than assuming one.
+    const row = aiTimeframe;
+    const usingRow = row != null && (row.bos != null || row.choch != null);
+    const bos = usingRow ? (row.bos ?? false) : analysis.structure.bos;
+    const choch = usingRow ? (row.choch ?? false) : analysis.structure.choch;
+    if (!bos && !choch) return [];
+
+    const pattern = usingRow
+      ? (row.structure ?? "")
+      : analysis.structure.pattern;
+    const bullish =
+      pattern === "HH-HL" || pattern === "HIGHER_HIGH_HIGHER_LOW";
+
+    const swings = row?.swings ?? analysis.swings ?? [];
+    const lastHigh = [...swings].reverse().find((m) => m.side === "high");
+    const lastLow = [...swings].reverse().find((m) => m.side === "low");
+    // A break of structure extends the trend, so it sits at the swing the
+    // trend just cleared; a change of character sits at the opposite one.
+    const target = bos
+      ? (bullish ? lastHigh : lastLow)
+      : (bullish ? lastLow : lastHigh);
+    if (!target) return [];
+    return [{
+      kind: bos ? "BOS" : "CHOCH",
+      price: target.price,
+      label: bos ? "Break of structure" : "Change of character",
+    }];
+  }, [showAI, analysis, aiTimeframe]);
 
   const markers: TradeMarker[] = useMemo(() => {
     const open = (account?.positions ?? []).map((p) => ({
@@ -455,6 +550,12 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
                 height={460}
                 onCoordinates={setCoords}
               />
+              <AIOverlayLayer
+                coords={coords}
+                zones={aiZones}
+                swings={aiSwings}
+                structure={aiStructure}
+              />
               <DrawingLayer
                 coords={coords}
                 tool={tool}
@@ -561,7 +662,12 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
 
           <AIPanel
             risk={risk}
-            onAnalysis={setAnalysis}
+            onAnalysis={(next) => {
+              setAnalysis(next);
+              // A fresh analysis is a new row in the AI history, so pull it
+              // now rather than making the customer switch tabs to find out.
+              if (next) void loadSignals();
+            }}
             onUseSetup={(setup) => {
               // AI ASSIST: this fills the form. It does not submit it, and
               // there is no path from here to an order.
@@ -596,10 +702,69 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           >
             Trade history ({trades.length})
           </button>
+          <button
+            type="button"
+            className={tab === "ai" ? "jg-chip active" : "jg-chip"}
+            onClick={() => { setTab("ai"); void loadSignals(); }}
+          >
+            AI history ({signals.length})
+          </button>
         </div>
 
         <div className="jg-ws-table-wrap">
-          {tab === "positions" ? (
+          {tab === "ai" ? (
+            <table className="jg-ws-table">
+              <thead>
+                <tr>
+                  <th>When</th><th>Symbol</th><th>Decision</th><th>Confidence</th>
+                  <th>Entry</th><th>SL</th><th>TP</th><th>R:R</th>
+                  <th>Risk gate</th><th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signals.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="jg-ws-empty">
+                      No AI analyses yet. Run one from the AI panel.
+                    </td>
+                  </tr>
+                )}
+                {signals.map((s) => (
+                  <tr key={s.id}>
+                    <td>{new Date(s.created_at).toLocaleString()}</td>
+                    <td>{s.symbol}</td>
+                    <td className={
+                      s.action === "BUY" ? "up"
+                        : s.action === "SELL" ? "down" : "jg-src"
+                    }>
+                      {s.action.replace("_", " ")}
+                    </td>
+                    <td>{s.confidence}%</td>
+                    <td>{s.entry?.toFixed(2) ?? "—"}</td>
+                    <td>{s.stop_loss?.toFixed(2) ?? "—"}</td>
+                    <td>{s.take_profit?.toFixed(2) ?? "—"}</td>
+                    <td>{s.risk_reward?.toFixed(2) ?? "—"}</td>
+                    {/* null means the risk engine never ruled on it, which
+                        is not the same as a rejection and is not shown as
+                        one. */}
+                    <td className={
+                      s.risk_approved == null ? "jg-src"
+                        : s.risk_approved ? "up" : "down"
+                    }>
+                      {s.risk_approved == null
+                        ? "not assessed"
+                        : s.risk_approved ? "approved" : "rejected"}
+                    </td>
+                    <td className="jg-ai-reason" title={s.reason}>
+                      {s.risk_reasons?.length
+                        ? s.risk_reasons.join("; ")
+                        : s.reason || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : tab === "positions" ? (
             <table className="jg-ws-table">
               <thead>
                 <tr>

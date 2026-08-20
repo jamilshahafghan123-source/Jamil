@@ -2848,6 +2848,32 @@ th.right {
 .jg-draw-layer.drawing { cursor: crosshair; pointer-events: auto; }
 .jg-draw-layer svg { display: block; overflow: visible; }
 
+/* AI overlays sit under the customer's drawings and never take the pointer:
+   they are a readout of what the engine measured, not something to grab. */
+.jg-ai-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.jg-ai-layer svg { display: block; overflow: hidden; }
+/* Reasons can be a full sentence; the row keeps its height and the full
+   text stays available in the title attribute. */
+.jg-ai-reason {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jg-ai-layer text {
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(13, 17, 23, 0.75);
+  stroke-width: 2.5px;
+}
+
 @media (max-width: 900px) {
   /* Horizontal strip above the chart on narrow screens; a vertical rail
      would eat the width the chart needs. */
