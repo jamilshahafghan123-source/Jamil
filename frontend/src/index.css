@@ -2260,3 +2260,44 @@ th.right {
   .jg-check-list li { flex-direction: column; gap: 7px; }
   .jg-secret-list li { flex-wrap: wrap; }
 }
+
+/* Maintenance panel is always present; only its tone changes. */
+.jg-maint { border-color: var(--line-strong); background: var(--bg-raised); }
+.jg-maint.active { border-color: var(--warn); background: var(--warn-dim); }
+.jg-maint strong { color: var(--text-dim); }
+.jg-maint.active strong { color: var(--warn); }
+.jg-maint-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.jg-maint-head strong { margin: 0; }
+.jg-maint .btn { margin-top: 10px; }
+
+/* Launch verdict. Green only when the backend says ready. */
+.jg-launch {
+  border: 1px solid var(--warn);
+  background: var(--warn-dim);
+  border-radius: 10px;
+  padding: 13px 15px;
+  margin: 10px 0 14px;
+}
+.jg-launch.ready { border-color: var(--up); background: var(--up-dim); }
+.jg-launch strong {
+  display: block;
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+}
+.jg-launch.ready strong { color: var(--up); }
+
+.jg-check-group { margin-top: 16px; }
+.jg-check-group h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}

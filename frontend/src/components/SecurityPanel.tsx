@@ -36,7 +36,48 @@ function itemTone(state: ChecklistItem["state"]): [string, string] {
   if (state === "PASS") return ["PASS", "ok"];
   if (state === "FAIL") return ["FAIL", "bad"];
   // MANUAL is genuinely unverified — amber, never green.
-  return ["NOT CONFIRMED", "warn"];
+  return ["NOT VERIFIED", "warn"];
+}
+
+/**
+ * Checklist grouping. Every key the backend emits is mapped; anything it
+ * adds later falls into DEPLOYMENT rather than vanishing from the page,
+ * because a checklist item that silently disappears is worse than one
+ * filed under the wrong heading.
+ */
+const GROUPS: { title: string; keys: string[] }[] = [
+  {
+    title: "Security",
+    keys: ["no_placeholder_secrets", "strong_jwt_secret", "bridge_token_rotated",
+           "agent_token_configured", "log_redaction", "secret_scan"],
+  },
+  { title: "Backups", keys: ["backup_verified", "restore_documented"] },
+  { title: "Auth", keys: ["password_reset", "admin_account_secured", "rate_limits"] },
+  {
+    title: "Network / HTTPS",
+    keys: ["https_enabled", "production_cors", "secure_headers",
+           "db_access_restricted"],
+  },
+  { title: "Trading safety", keys: ["real_trading_off", "real_trading_reviewed"] },
+  { title: "Deployment", keys: ["dependency_scan"] },
+];
+
+function grouped(items: ChecklistItem[]): { title: string; items: ChecklistItem[] }[] {
+  const seen = new Set<string>();
+  const out = GROUPS.map((g) => {
+    const picked = items.filter((i) => g.keys.includes(i.key));
+    picked.forEach((i) => seen.add(i.key));
+    return { title: g.title, items: picked };
+  }).filter((g) => g.items.length > 0);
+
+  // Anything unmapped still gets shown.
+  const rest = items.filter((i) => !seen.has(i.key));
+  if (rest.length > 0) {
+    const deployment = out.find((g) => g.title === "Deployment");
+    if (deployment) deployment.items.push(...rest);
+    else out.push({ title: "Deployment", items: rest });
+  }
+  return out;
 }
 
 export function SecurityPanel({ data }: { data: SecurityOverview | null }) {
@@ -175,24 +216,45 @@ export function SecurityPanel({ data }: { data: SecurityOverview | null }) {
 
       {/* ------------------------------------------- launch checklist */}
       <h3 className="jg-cc-sub">Public launch checklist</h3>
-      <p className="jg-cc-note">
-        {data.launch_checklist.failed} failing ·{" "}
-        {data.launch_checklist.manual_outstanding} not confirmed. {data.launch_checklist.note}
-      </p>
-      <ul className="jg-check-list">
-        {data.launch_checklist.items.map((item) => {
-          const [label, colour] = itemTone(item.state);
-          return (
-            <li key={item.key}>
-              <span className={`jg-pill jg-pill-${colour}`}>{label}</span>
-              <div className="jg-check-body">
-                <strong>{item.title}</strong>
-                <span className="jg-cc-note">{item.detail}</span>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+
+      {/* Green only when the backend itself says ready. A failing or merely
+          unverified item leaves this amber. */}
+      <div
+        className={
+          data.launch_checklist.ready ? "jg-launch ready" : "jg-launch"
+        }
+      >
+        <strong>
+          {data.launch_checklist.ready
+            ? "READY FOR PUBLIC LAUNCH"
+            : "NOT READY FOR PUBLIC LAUNCH"}
+        </strong>
+        <p className="jg-cc-note">
+          {data.launch_checklist.failed} failing ·{" "}
+          {data.launch_checklist.manual_outstanding} not verified
+        </p>
+        <p className="jg-cc-note">{data.launch_checklist.note}</p>
+      </div>
+
+      {grouped(data.launch_checklist.items).map((group) => (
+        <div key={group.title} className="jg-check-group">
+          <h4>{group.title}</h4>
+          <ul className="jg-check-list">
+            {group.items.map((item) => {
+              const [label, colour] = itemTone(item.state);
+              return (
+                <li key={item.key}>
+                  <span className={`jg-pill jg-pill-${colour}`}>{label}</span>
+                  <div className="jg-check-body">
+                    <strong>{item.title}</strong>
+                    <span className="jg-cc-note">{item.detail}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }

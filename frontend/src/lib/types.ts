@@ -491,6 +491,7 @@ export interface AdminBackup {
   detail: string;
   app_version: string;
   has_checksum: boolean;
+  database_name: string;
 }
 
 export interface ChecklistItem {

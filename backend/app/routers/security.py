@@ -173,6 +173,8 @@ class BackupOut(BaseModel):
     #: Presence only. The value would be noise in a panel and is available
     #: to verification, which is what actually compares it.
     has_checksum: bool
+    #: Which database it came from. A name, never a DSN.
+    database_name: str
 
 
 class RestoreIn(BaseModel):
@@ -189,6 +191,7 @@ def _out(row: BackupRecord) -> BackupOut:
         verified_at=row.verified_at, detail=row.detail,
         app_version=row.app_version or "unknown",
         has_checksum=bool(row.checksum),
+        database_name=row.database_name or "",
     )
 
 
@@ -319,6 +322,7 @@ async def restore_backup(
                 final_state="NEEDS_ADMIN",
                 attempt_number=1,
                 actions=[{"operation": "RESTORE", "ok": False,
+                          "backup_id": row.id,
                           "detail": secrets_svc.redact(outcome.detail)[:300]}],
                 detail=secrets_svc.redact(outcome.detail)[:500],
             )

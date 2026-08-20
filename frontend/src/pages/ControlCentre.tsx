@@ -180,6 +180,11 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
     }
   }
 
+  // Section 8: link to the incident the restore already created, found in
+  // the incidents the backend already returns. Nothing is stored twice.
+  const restoreIncident =
+    incidents.find((i) => i.category === "RESTORE_FAILED") ?? null;
+
   const permitted = recovery?.permitted_operations ?? [];
   const mutating = permitted.filter(
     (op) => op.startsWith("RESTART_") || op.startsWith("START_"),
@@ -204,27 +209,67 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
         </p>
       )}
 
-      {security?.maintenance.active && (
-        <section className="jg-cc-section">
-          <div className="jg-maint">
+      {/* Always shown, active or not: an operator should be able to read
+          the maintenance state off the page rather than infer it from the
+          absence of a banner. The state comes from the backend on every
+          poll, so the UI cannot claim a window ended before it has. */}
+      <section className="jg-cc-section">
+        <div
+          className={security?.maintenance.active ? "jg-maint active" : "jg-maint"}
+        >
+          <div className="jg-maint-head">
             <strong>MAINTENANCE MODE</strong>
-            <ul>
-              <li>New automated trading and new orders are blocked.</li>
-              <li>
-                Open positions are <em>not</em> closed and can still be closed
-                manually.
-              </li>
-              <li>Admin diagnostics and support remain available.</li>
-            </ul>
-            <p className="jg-cc-note">
-              {security.maintenance.reason}
-              {security.maintenance.since
-                ? ` · since ${when(security.maintenance.since)}`
-                : ""}
-            </p>
+            <span
+              className={`jg-pill jg-pill-${
+                security?.maintenance.active ? "warn" : "ok"
+              }`}
+            >
+              {security?.maintenance.active ? "ACTIVE" : "INACTIVE"}
+            </span>
           </div>
-        </section>
-      )}
+          {security?.maintenance.active ? (
+            <>
+              <ul>
+                <li>New automated trades are blocked.</li>
+                <li>New opening orders are blocked.</li>
+                <li>
+                  Closing a position remains allowed — positions are{" "}
+                  <em>not</em> closed automatically.
+                </li>
+                <li>Admin diagnostics and support remain available.</li>
+              </ul>
+              <p className="jg-cc-note">
+                {security.maintenance.reason || "No reason recorded"}
+                {security.maintenance.since
+                  ? ` · started ${when(security.maintenance.since)}`
+                  : ""}
+                {security.maintenance.detail
+                  ? ` · ${security.maintenance.detail}`
+                  : ""}
+              </p>
+              {restoreIncident && (
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => {
+                    setFilter("NEEDS_ADMIN");
+                    document
+                      .querySelector(".jg-cc-incidents")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                >
+                  Open related incident #{restoreIncident.id}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="jg-cc-note">
+              Normal operation. Automated trading and order placement are not
+              blocked by maintenance.
+            </p>
+          )}
+        </div>
+      </section>
 
       {/* --------------------------------------------------- safe mode */}
       <section className="jg-cc-section">

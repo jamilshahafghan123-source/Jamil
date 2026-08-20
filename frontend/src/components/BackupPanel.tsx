@@ -79,7 +79,7 @@ export function BackupPanel({
       setResult(
         made.status === "FAILED"
           ? `Backup failed: ${made.detail}`
-          : `Backup ${made.filename} created (${size(made.size_bytes)}).`,
+          : `Backup #${made.id} created (${size(made.size_bytes)}).`,
       );
       await load();
       onChanged?.();
@@ -95,7 +95,7 @@ export function BackupPanel({
     setResult(null);
     try {
       const checked = await api.adminVerifyBackup(backup.id);
-      setResult(`${checked.filename}: ${checked.detail}`);
+      setResult(`Backup #${checked.id}: ${checked.detail}`);
       await load();
       onChanged?.();
     } catch (err) {
@@ -114,7 +114,7 @@ export function BackupPanel({
       const res = await api.adminRestoreBackup(backup.id);
       setResult(
         res.ok
-          ? `Restore from ${backup.filename} completed and verified.`
+          ? `Restore from backup #${backup.id} completed and verified.`
           : `Restore did not complete: ${res.detail}${
               res.maintenance_active
                 ? " The platform remains in maintenance."
@@ -154,7 +154,7 @@ export function BackupPanel({
           </div>
           {latest ? (
             <>
-              <p className="jg-cc-detail">{latest.filename}</p>
+              <p className="jg-cc-detail">Backup #{latest.id}</p>
               <dl className="jg-cc-meta">
                 <div>
                   <dt>Created</dt>
@@ -176,7 +176,8 @@ export function BackupPanel({
                 </div>
               </dl>
               <p className="jg-cc-note">
-                Checksum {latest.has_checksum ? "recorded" : "not recorded"}
+                Database {latest.database_name || "unknown"} · checksum{" "}
+                {latest.has_checksum ? "recorded" : "not recorded"}
               </p>
             </>
           ) : (
@@ -229,14 +230,17 @@ export function BackupPanel({
                   <span className={`jg-pill jg-pill-${tone(b.status)}`}>
                     {b.status.replace(/_/g, " ")}
                   </span>
-                  <span className="jg-inc-service">{b.filename}</span>
+                  <span className="jg-inc-service">Backup #{b.id}</span>
                   <span className="jg-inc-cat">{size(b.size_bytes)}</span>
                   <span className="jg-inc-time">{when(b.created_at)}</span>
                 </summary>
                 <div className="jg-inc-body">
                   <p>{b.detail || "No detail recorded."}</p>
                   <p className="jg-cc-note">
-                    Version {b.app_version} · verified {when(b.verified_at)}
+                    Version {b.app_version} · database{" "}
+                    {b.database_name || "unknown"} · checksum{" "}
+                    {b.has_checksum ? "recorded" : "none"} · verified{" "}
+                    {when(b.verified_at)}
                   </p>
                   <div className="jg-cc-actions">
                     <button
@@ -272,7 +276,7 @@ export function BackupPanel({
       {restoreTarget && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="jg-confirm">
-            <h3>Restore from {restoreTarget.filename}?</h3>
+            <h3>Restore from backup #{restoreTarget.id}?</h3>
             <p>
               This is a <strong>maintenance operation</strong>. The platform
               enters maintenance mode: new automated trading and new orders are
