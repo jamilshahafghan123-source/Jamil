@@ -224,6 +224,12 @@ Open **http://localhost:8081** and sign in with the bootstrap credentials.
 The dashboard will show **MT5 offline** until you start the bridge (step 4).
 Everything else — login, risk settings, the audit trail — works without it.
 
+### Updating an install you already have
+
+Not a first run? See **[`docs/LOCAL_UPDATE.md`](docs/LOCAL_UPDATE.md)** — it
+covers pulling the branch, applying the SQL in `backend/migrations/` that
+`create_all` cannot apply for you, and rebuilding, without dropping anything.
+
 ### Without Docker
 
 Backend:

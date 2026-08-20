@@ -18,6 +18,15 @@ idempotent and states its effect on existing data.
 | `005_demo_engine.sql` | `demo_accounts`, `demo_positions`, `demo_trades` tables | No |
 | `006_execution_venue.sql` | `execution_venue` column on `risk_settings` | Column added with a default |
 | `007_chart_drawings.sql` | `chart_drawings` table | No |
+| `008_user_role_enum.sql` | native `userrole` enum type | Column type only; ADMIN/CUSTOMER values preserved |
+
+`008` is the first file that changes an existing column's *type* rather
+than adding one. It converts `users.role` from the VARCHAR an older
+revision created into the native `userrole` enum that `models.py` now
+declares — `create_all` cannot do this, because it never alters a column
+that already exists. It refuses to run rather than lose data if any row
+holds a value outside `ADMIN`/`CUSTOMER`, and it must be run **without**
+`--single-transaction`.
 
 `004` is the first file that ALTERs rather than creates. It is still safe
 for `create_all` deployments only because the columns have defaults and
