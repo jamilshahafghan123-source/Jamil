@@ -23,7 +23,7 @@ from .. import audit
 from ..config import settings
 from ..db import SessionLocal
 from ..models import RiskSettings, Signal, SignalAction, TradingMode, User
-from . import executor, risk_engine
+from . import executor, risk_engine, safe_mode
 from .analyst import analyze
 from .indicators import TIMEFRAMES, build_snapshot
 from .mt5_client import BridgeError, mt5
@@ -299,6 +299,33 @@ async def _manage_strong_reversal(
     return closed_any
 
 
+#: Last safe-mode reason set logged per user, so a sustained outage does not
+#: fill the log with an identical line every cycle.
+_safe_mode_logged: dict[int, tuple] = {}
+
+
+async def _current_safe_mode() -> safe_mode.SafeModeState:
+    """Evaluate safe mode from live readings.
+
+    Any failure to read is itself a reason to stop: an unreadable tick means
+    we do not know the price, and not knowing is exactly the state safe mode
+    exists for.
+    """
+    connected = False
+    last_tick_at: datetime | None = None
+    try:
+        connected = await mt5.connected()
+        if connected:
+            tick = await mt5.tick()
+            raw = tick.get("time") if isinstance(tick, dict) else None
+            if raw:
+                last_tick_at = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001 - unreadable state is untrustworthy state
+        connected = False
+        last_tick_at = None
+    return safe_mode.evaluate(bridge_connected=connected, last_tick_at=last_tick_at)
+
+
 async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     row = (
         await db.execute(select(RiskSettings).where(RiskSettings.user_id == user.id))
@@ -358,6 +385,25 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     except BridgeError as e:
         log.warning("bot: bridge unavailable for user %s: %s", user.id, e)
         return
+
+    # SAFE MODE. Nothing automated proceeds on state the platform cannot
+    # vouch for. This blocks new entries and also skips the analysis-driven
+    # position management below, because a decision to close is only as good
+    # as the prices behind it — but it closes nothing by itself. A service
+    # failure must never become a trading event, so positions already open
+    # stay open and remain manageable by hand.
+    safe = await _current_safe_mode()
+    if safe.blocks_automated_trading:
+        reasons = tuple(r.value for r in safe.reasons)
+        if _safe_mode_logged.get(user.id) != reasons:
+            log.warning("bot paused for user %s by safe mode: %s",
+                        user.id, ", ".join(reasons))
+            _safe_mode_logged[user.id] = reasons
+            await audit.record(
+                db, audit.SAFE_MODE_PAUSED, {"reasons": list(reasons)}, user.id
+            )
+        return
+    _safe_mode_logged.pop(user.id, None)
 
     signal, _ = await run_analysis(db, user.id, settings_row=row)
 

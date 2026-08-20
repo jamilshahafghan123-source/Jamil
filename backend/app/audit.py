@@ -33,6 +33,7 @@ SETTINGS_UPDATED = "settings.updated"
 LOGIN_SUCCESS = "auth.login_success"
 LOGIN_FAILED = "auth.login_failed"
 DAILY_LIMIT_HIT = "risk.daily_limit_hit"
+SAFE_MODE_PAUSED = "safe_mode.bot_paused"
 
 
 async def record(
