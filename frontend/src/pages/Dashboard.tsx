@@ -12,6 +12,7 @@ import type {
   TradingMode,
 } from "../lib/types";
 import { Badge, Banner, Card, Empty, Spinner, Stat } from "../components/Primitives";
+import { Brand } from "../components/Brand";
 import {
   AnalysisPanel,
   DealHistory,
@@ -259,9 +260,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="mark">◆</span>
-          <span>XAUUSD</span>
-          <span className="sub">AI Analyst</span>
+          <Brand size={22} />
+          <span className="sub">XAUUSD AI Analyst</span>
         </div>
 
         <Badge tone={status.bridge_connected ? "up" : "down"} live={status.bridge_connected}>
@@ -449,7 +449,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             value={
               latestClosedDeal
                 ? `${latestClosedDeal.type} ${currency}${latestClosedDeal.profit.toFixed(2)}`
-                : "�"
+                : "—"
             }
             tone={
               !latestClosedDeal

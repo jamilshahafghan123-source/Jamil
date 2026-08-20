@@ -1177,3 +1177,336 @@ th.right {
   font-size: 9px;
   font-weight: 600;
 }
+
+/* ==========================================================================
+   J Gold AI — brand lockup and public pages
+
+   The dashboard above is a terminal; these are the pages a visitor sees
+   first, so they get more air, larger type and a metallic gold accent on a
+   black/charcoal ground. Same tokens throughout — no second palette.
+   ========================================================================== */
+
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1;
+}
+.brand-emblem {
+  display: block;
+  flex: none;
+}
+/* The derivatives are already cropped, so these only shape the frame. */
+.brand-emblem-mark {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(217, 164, 65, 0.16);
+}
+/* hero: the whole lockup, framed as a plate so the artwork's opaque dark
+   ground reads as deliberate rather than as a stray box */
+.brand-emblem-full {
+  border-radius: 18px;
+  box-shadow:
+    inset 0 0 0 1px rgba(217, 164, 65, 0.2),
+    0 22px 60px rgba(0, 0, 0, 0.55);
+  max-width: 100%;
+}
+.brand-name {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* the dashboard topbar aligns its children on the baseline, which an image
+   has no useful baseline for */
+.topbar .brand {
+  align-items: center;
+}
+
+.jg-auth-brand {
+  margin-bottom: 16px;
+}
+
+/* -------------------------------------------------------- public shell */
+
+.jg-home,
+.jg-gate {
+  min-height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  background:
+    radial-gradient(1100px 520px at 50% -160px, rgba(217, 164, 65, 0.1), transparent 70%),
+    var(--bg);
+}
+
+.jg-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(11, 13, 16, 0.7);
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.jg-spacer {
+  flex: 1;
+}
+
+.jg-btn {
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-hover);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.jg-btn:hover:not(:disabled) {
+  border-color: var(--gold-dim);
+  background: var(--bg-raised);
+}
+.jg-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.jg-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.jg-btn.primary {
+  background: linear-gradient(180deg, #eec46f, var(--gold));
+  border-color: var(--gold);
+  color: #1a1206;
+}
+.jg-btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f6d68b, #e0ae4c);
+  border-color: #f0c877;
+}
+.jg-btn.lg {
+  padding: 13px 26px;
+  font-size: 15px;
+}
+/* margin-top:auto pins every plan's button to the bottom of its card, so a
+   card with an extra note line does not knock its button out of line */
+.jg-btn.price {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+.jg-price .jg-cadence,
+.jg-price .jg-note {
+  margin-bottom: 18px;
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.jg-hero {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 62px 22px 54px;
+  text-align: center;
+}
+.jg-hero-logo {
+  margin-bottom: 22px;
+}
+/* The lockup carries its own "GOLD AI" wordmark and the <h1> below sets the
+   name again, so the text is suppressed here — fallback state included. */
+.jg-hero-logo .brand-name {
+  display: none;
+}
+.jg-hero-logo {
+  justify-content: center;
+}
+.jg-hero h1 {
+  margin: 0 0 16px;
+  font-size: clamp(30px, 6vw, 50px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+.jg-gold {
+  background: linear-gradient(100deg, #f4dda3, var(--gold) 55%, #a87c2e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.jg-lead {
+  margin: 0 auto;
+  max-width: 640px;
+  font-size: clamp(14px, 2.4vw, 16.5px);
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+.jg-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: 30px 0 22px;
+}
+.jg-disclaimer {
+  margin: 0 auto;
+  max-width: 620px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+/* -------------------------------------------------------------- sections */
+
+.jg-section {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 30px 22px 44px;
+}
+.jg-section > h2 {
+  margin: 0 0 22px;
+  font-size: clamp(20px, 3.4vw, 26px);
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.jg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+}
+.jg-card {
+  background: linear-gradient(180deg, var(--bg-raised), var(--bg-inset));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px;
+}
+.jg-card h3 {
+  margin: 0 0 9px;
+  font-size: 14.5px;
+  color: var(--gold);
+  letter-spacing: 0.01em;
+}
+.jg-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------------- pricing */
+
+.jg-price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+.jg-price {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, var(--bg-raised), var(--bg-inset));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 26px 22px;
+  text-align: center;
+}
+.jg-price.featured {
+  border-color: var(--gold-dim);
+  box-shadow: 0 0 0 1px var(--gold-glow), 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.jg-price h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.jg-flag {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #1a1206;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.jg-amount {
+  font-family: var(--mono);
+  font-size: clamp(24px, 4.4vw, 30px);
+  font-weight: 650;
+  color: var(--gold);
+}
+.jg-cadence {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.jg-note {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------ subscription gate */
+
+.jg-gate-head {
+  text-align: center;
+  padding-top: 52px;
+  padding-bottom: 8px;
+}
+.jg-gate-head h1 {
+  margin: 0 0 12px;
+  font-size: clamp(26px, 5vw, 36px);
+  letter-spacing: -0.02em;
+}
+.jg-signed-in {
+  margin: 14px 0 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.jg-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 26px 22px 46px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+.jg-foot p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+@media (max-width: 560px) {
+  .jg-topbar {
+    padding: 11px 14px;
+  }
+  .jg-hero {
+    padding: 40px 16px 34px;
+  }
+  .jg-section {
+    padding: 24px 16px 34px;
+  }
+  .jg-cta .jg-btn {
+    flex: 1 1 160px;
+  }
+}

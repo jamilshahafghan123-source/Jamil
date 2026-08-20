@@ -1,5 +1,15 @@
-﻿import { FormEvent, useState } from "react";
+import { useState, type FormEvent } from "react";
 import { api, ApiError } from "../lib/api";
+import { Banner } from "../components/Primitives";
+import { Brand } from "../components/Brand";
+
+/**
+ * Registration page.
+ *
+ * Props and the api.register() call are unchanged — only the presentation is
+ * rebranded. New accounts are still created as CUSTOMER server-side, so this
+ * page cannot grant dashboard access on its own.
+ */
 
 type SignUpProps = {
   onBack: () => void;
@@ -39,93 +49,82 @@ export function SignUp({ onBack, onRegistered }: SignUpProps) {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: "24px",
-      }}
-    >
-      <form
-        onSubmit={submit}
-        style={{
-          width: "100%",
-          maxWidth: "420px",
-          padding: "32px",
-          border: "1px solid #333",
-          borderRadius: "14px",
-        }}
-      >
-        <h1>Jamil Gold AI</h1>
-        <h2>Create Account</h2>
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={submit}>
+        <Brand size={40} className="jg-auth-brand" />
+        <h1>Create account</h1>
+        <p className="tagline">
+          Sign up to access XAUUSD analysis, risk controls and demo trading.
+        </p>
 
-        <label>
-          Email
+        {error && (
+          <div style={{ marginBottom: 14 }}>
+            <Banner tone="err">{error}</Banner>
+          </div>
+        )}
+
+        <div className="field">
+          <label htmlFor="signup-email">Email</label>
           <input
+            id="signup-email"
             type="email"
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            style={{ width: "100%", padding: "12px", margin: "8px 0 18px" }}
           />
-        </label>
+        </div>
 
-        <label>
-          Password
+        <div className="field">
+          <label htmlFor="signup-password">Password</label>
           <input
+            id="signup-password"
             type="password"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={8}
             required
-            style={{ width: "100%", padding: "12px", margin: "8px 0 18px" }}
           />
-        </label>
+          <span className="hint">At least 8 characters.</span>
+        </div>
 
-        <label>
-          Confirm Password
+        <div className="field">
+          <label htmlFor="signup-confirm">Confirm password</label>
           <input
+            id="signup-confirm"
             type="password"
+            autoComplete="new-password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             minLength={8}
             required
-            style={{ width: "100%", padding: "12px", margin: "8px 0 18px" }}
           />
-        </label>
-
-        {error && (
-          <p style={{ color: "#ff6b6b" }}>
-            {error}
-          </p>
-        )}
+        </div>
 
         <button
           type="submit"
+          className="btn primary"
+          style={{ width: "100%", marginTop: 4 }}
           disabled={busy}
-          style={{
-            width: "100%",
-            padding: "13px",
-            cursor: "pointer",
-          }}
         >
-          {busy ? "Creating account..." : "Create Account"}
+          {busy ? "Creating account…" : "Create account"}
         </button>
 
         <button
           type="button"
+          className="btn"
+          style={{ width: "100%", marginTop: 10 }}
           onClick={onBack}
-          style={{
-            width: "100%",
-            padding: "13px",
-            marginTop: "10px",
-            cursor: "pointer",
-          }}
         >
           Back
         </button>
+
+        <p className="tagline" style={{ marginTop: 18, marginBottom: 0 }}>
+          Broker credentials are never entered here. They live only on the MT5
+          bridge host.
+        </p>
       </form>
-    </main>
+    </div>
   );
 }

@@ -1,4 +1,18 @@
-﻿type SubscriptionRequiredProps = {
+import { PLANS } from "../lib/pricing";
+import { Brand } from "../components/Brand";
+
+/**
+ * Subscription gate for CUSTOMER accounts.
+ *
+ * App.tsx renders this instead of the dashboard whenever the signed-in user
+ * is a CUSTOMER, so this page is what enforces the paywall in the UI. The
+ * props and the gate itself are unchanged.
+ *
+ * There is no payment provider wired up yet: the plan buttons are inert and
+ * say so, rather than pretending to start a checkout that does not exist.
+ */
+
+type SubscriptionRequiredProps = {
   email: string;
   onLogout: () => void;
 };
@@ -8,81 +22,45 @@ export function SubscriptionRequired({
   onLogout,
 }: SubscriptionRequiredProps) {
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#0b0e12",
-        color: "#f5f5f5",
-        padding: "48px 24px",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      <section
-        style={{
-          maxWidth: "1000px",
-          margin: "0 auto",
-          textAlign: "center",
-        }}
-      >
-        <h1 style={{ fontSize: "42px", color: "#e5b642" }}>
-          Jamil Gold AI
-        </h1>
-
-        <h2>Choose Your Plan</h2>
-
-        <p style={{ opacity: 0.8 }}>
-          Signed in as {email}
-        </p>
-
-        <p style={{ marginBottom: "40px" }}>
-          An active subscription is required to access the trading dashboard.
-        </p>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "20px",
-          }}
-        >
-          <div style={{ border: "1px solid #444", borderRadius: "14px", padding: "30px" }}>
-            <h3>Weekly</h3>
-            <h2>GBP 9.99</h2>
-            <p>Every week</p>
-            <button disabled style={{ padding: "12px 22px" }}>
-              Payment coming next
-            </button>
-          </div>
-
-          <div style={{ border: "2px solid #e5b642", borderRadius: "14px", padding: "30px" }}>
-            <h3>Monthly</h3>
-            <h2>GBP 29.99</h2>
-            <p>Every month</p>
-            <button disabled style={{ padding: "12px 22px" }}>
-              Payment coming next
-            </button>
-          </div>
-
-          <div style={{ border: "1px solid #444", borderRadius: "14px", padding: "30px" }}>
-            <h3>Yearly</h3>
-            <h2>GBP 249.99</h2>
-            <p>Every year</p>
-            <button disabled style={{ padding: "12px 22px" }}>
-              Payment coming next
-            </button>
-          </div>
-        </div>
-
-        <button
-          onClick={onLogout}
-          style={{
-            marginTop: "40px",
-            padding: "12px 22px",
-            cursor: "pointer",
-          }}
-        >
-          Sign Out
+    <main className="jg-gate">
+      <header className="jg-topbar">
+        <Brand size={36} />
+        <div className="jg-spacer" />
+        <button type="button" className="jg-btn" onClick={onLogout}>
+          Sign out
         </button>
+      </header>
+
+      <section className="jg-section jg-gate-head">
+        <h1>Choose your plan</h1>
+        <p className="jg-lead">
+          An active subscription is required to open the trading dashboard.
+        </p>
+        <p className="jg-signed-in">Signed in as {email}</p>
+      </section>
+
+      <section className="jg-section">
+        <div className="jg-price-grid">
+          {PLANS.map((plan) => (
+            <article
+              key={plan.id}
+              className={plan.highlight ? "jg-price featured" : "jg-price"}
+            >
+              {plan.highlight && <span className="jg-flag">{plan.note}</span>}
+              <h3>{plan.name}</h3>
+              <div className="jg-amount">{plan.price}</div>
+              <p className="jg-cadence">{plan.cadence}</p>
+              {!plan.highlight && <p className="jg-note">{plan.note}</p>}
+              <button type="button" className="jg-btn price" disabled>
+                Choose Plan
+              </button>
+            </article>
+          ))}
+        </div>
+        <p className="jg-disclaimer">
+          Payments are not connected yet, so these buttons do not charge
+          anything. Prices are shown in GBP.
+        </p>
       </section>
     </main>
   );

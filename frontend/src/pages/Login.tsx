@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, auth } from "../lib/api";
 import { Banner } from "../components/Primitives";
+import { Brand } from "../components/Brand";
 
 export function Login({ onSuccess }: { onSuccess: () => void }) {
   const [email, setEmail] = useState("");
@@ -26,10 +27,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <div className="brand" style={{ marginBottom: 14 }}>
-          <span className="mark">◆</span>
-          <span>MT5 AI Analyst</span>
-        </div>
+        <Brand size={40} className="jg-auth-brand" />
         <h1>Sign in</h1>
         <p className="tagline">XAUUSD market analysis and risk-managed execution.</p>
 
