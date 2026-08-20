@@ -4,7 +4,9 @@ import {
   CrosshairMode,
   type CandlestickData,
   type IChartApi,
+  LineStyle,
   type ISeriesApi,
+  type LineData,
   type SeriesMarker,
   type Time,
   createChart,
@@ -45,6 +47,16 @@ export interface ChartZone {
   colour: string;
 }
 
+/** A computed overlay line: SMA, EMA, a Bollinger band, VWAP. */
+export interface OverlaySeries {
+  id: string;
+  label: string;
+  colour: string;
+  /** Same length as `bars`; null where the indicator has not warmed up. */
+  values: (number | null)[];
+  dashed?: boolean;
+}
+
 export interface TradeMarker {
   time: string;
   side: "BUY" | "SELL";
@@ -83,18 +95,23 @@ export function TradingChart({
   priceLines = [],
   zones = [],
   markers = [],
+  overlays = [],
   height = 480,
 }: {
   bars: Bar[];
   priceLines?: PriceLine[];
   zones?: ChartZone[];
   markers?: TradeMarker[];
+  overlays?: OverlaySeries[];
   height?: number;
 }) {
   const holder = useRef<HTMLDivElement | null>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lines = useRef<ReturnType<ISeriesApi<"Candlestick">["createPriceLine"]>[]>([]);
+  // Keyed by overlay id so a series is created once and updated in place;
+  // removing and re-adding every poll would flicker and churn memory.
+  const overlaySeries = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
 
   // Create once. Recreating on data change would discard zoom and pan.
   useEffect(() => {
@@ -146,10 +163,14 @@ export function TradingChart({
 
     return () => {
       observer.disconnect();
+      // remove() disposes every series with the chart, so the overlay map
+      // is cleared rather than iterated — touching a disposed series after
+      // this throws.
       instance.remove();
       chart.current = null;
       candles.current = null;
       lines.current = [];
+      overlaySeries.current.clear();
     };
   }, [height]);
 
@@ -179,6 +200,50 @@ export function TradingChart({
       }),
     );
   }, [priceLines, zones]);
+
+  // Overlays: create once per id, update in place, drop what disappeared.
+  useEffect(() => {
+    const instance = chart.current;
+    if (!instance) return;
+    const live = new Set(overlays.map((o) => o.id));
+
+    for (const [id, series] of overlaySeries.current) {
+      if (!live.has(id)) {
+        instance.removeSeries(series);
+        overlaySeries.current.delete(id);
+      }
+    }
+
+    for (const overlay of overlays) {
+      let series = overlaySeries.current.get(overlay.id);
+      if (!series) {
+        series = instance.addLineSeries({
+          color: overlay.colour,
+          lineWidth: 1,
+          lineStyle: overlay.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        overlaySeries.current.set(overlay.id, series);
+      } else {
+        series.applyOptions({ color: overlay.colour });
+      }
+      const data: LineData<Time>[] = [];
+      for (let i = 0; i < bars.length && i < overlay.values.length; i++) {
+        const value = overlay.values[i];
+        // Gaps are omitted rather than zero-filled: a zero would draw a
+        // line to the bottom of the chart and look like a crash.
+        if (value == null) continue;
+        data.push({ time: toSeconds(bars[i].time), value });
+      }
+      series.setData(
+        data
+          .sort((a, b) => (a.time as number) - (b.time as number))
+          .filter((d, i, all) => i === 0 || d.time !== all[i - 1].time),
+      );
+    }
+  }, [overlays, bars]);
 
   useEffect(() => {
     if (!candles.current) return;

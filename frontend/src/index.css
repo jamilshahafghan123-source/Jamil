@@ -2701,3 +2701,95 @@ th.right {
   color: var(--gold);
   background: var(--gold-glow);
 }
+
+/* ------------------------------------------------------- indicators */
+
+.jg-ind { position: relative; }
+.jg-ind-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+}
+.jg-ind-add { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.jg-ind-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.jg-ind-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.jg-ind-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.jg-ind-name { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; }
+.jg-ind-list input {
+  width: 54px;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 3px 6px;
+}
+.jg-ind-toggle,
+.jg-ind-remove {
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.jg-ind-toggle:hover, .jg-ind-remove:hover { color: var(--text); }
+.jg-ind-remove { font-size: 15px; line-height: 1; }
+
+.jg-ind-readouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  background: var(--line);
+  border-top: 1px solid var(--line);
+}
+.jg-ind-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 7px 12px;
+  background: var(--bg-raised);
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.jg-ind-readout-label {
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.jg-ind-readout-value { font-family: var(--mono); font-size: 13px; font-weight: 650; }
+.jg-ind-readout-note { font-size: 10.5px; color: var(--text-faint); margin-left: auto; }
+
+@media (max-width: 640px) {
+  /* Anchored to the viewport rather than to a toolbar item that may sit
+     near the right edge — as an absolutely-positioned panel it pushed the
+     page wider than the screen. */
+  .jg-ind-panel {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    top: 96px;
+    width: auto;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .jg-ind-readout { flex: 1 1 100%; }
+}

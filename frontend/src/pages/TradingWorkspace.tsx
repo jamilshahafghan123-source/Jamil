@@ -4,6 +4,7 @@ import { Brand } from "../components/Brand";
 import { SupportChat } from "../components/SupportChat";
 import { TradingChart, type PriceLine, type TradeMarker } from "../components/TradingChart";
 import { AIPanel, type AISetup } from "../components/AIPanel";
+import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
 import type {
   Analysis,
   Bar,
@@ -74,6 +75,10 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [showAI, setShowAI] = useState(true);
   const [aiSetup, setAiSetup] = useState<AISetup | null>(null);
+
+  // Indicator state and calculations. Memoised on `bars`, so a poll that
+  // returns an unchanged array recomputes nothing.
+  const { configs, setConfigs, overlays, readouts } = useIndicators(bars);
 
   // One in-flight bars request at a time; a timeframe click mid-flight must
   // not let a stale response land after the new one.
@@ -305,6 +310,12 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           ))}
         </div>
 
+        <IndicatorPanel
+          configs={configs}
+          setConfigs={setConfigs}
+          readouts={[]}
+        />
+
         <div className="jg-spacer" />
         <button
           type="button"
@@ -379,8 +390,20 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
               bars={bars}
               markers={markers}
               priceLines={aiLines}
+              overlays={overlays}
               height={460}
             />
+          )}
+          {readouts.length > 0 && (
+            <div className="jg-ind-readouts">
+              {readouts.map((r) => (
+                <div key={r.id} className="jg-ind-readout">
+                  <span className="jg-ind-readout-label">{r.label}</span>
+                  <span className="jg-ind-readout-value">{r.value}</span>
+                  <span className="jg-ind-readout-note">{r.note}</span>
+                </div>
+              ))}
+            </div>
           )}
         </section>
 
