@@ -316,3 +316,100 @@ export interface LiveMessage {
   trading_mode?: TradingMode;
   error?: string;
 }
+
+/* ---------------------------------------------------------------- admin
+ * Shapes for the ADMIN control centre. Note what is absent: no token, no
+ * URL, no DSN. The backend never sends them, and these types make that
+ * visible — a field appearing here would be a review flag.
+ */
+
+export type ComponentStatus =
+  | "UP"
+  | "DEGRADED"
+  | "DOWN"
+  | "UNKNOWN"
+  | "NOT_CONFIGURED";
+
+export interface ComponentHealth {
+  component: string;
+  status: ComponentStatus;
+  detail: string;
+  checked_at: string | null;
+}
+
+export interface ControlCentre {
+  generated_at: string;
+  system_health: {
+    overall: ComponentStatus;
+    components: ComponentHealth[];
+    fault_count: number;
+  };
+  safe_mode: {
+    active: boolean;
+    reasons: string[];
+    banner: string | null;
+    customer_messages: string[];
+  };
+  customers: {
+    total: number;
+    admins: number;
+    customers: number;
+    active: number;
+  };
+  trading: {
+    bots_enabled: number;
+    accounts_emergency_stopped: number;
+    real_trading_allowed_by_server: boolean;
+  };
+  incidents: { open: number; recovered: number; failed_recoveries: number };
+  support: { needs_admin: number; open: number };
+}
+
+export interface RecoveryService {
+  state: string;
+  attempts_in_window: number;
+  has_automatic_repair: boolean;
+  policy: string;
+}
+
+export interface AdminIncident {
+  id: number;
+  service: string;
+  category: string;
+  status: string;
+  detected_at: string | null;
+  recovered_at: string | null;
+  attempt_number: number;
+  actions: { operation: string; ok: boolean; detail: string }[];
+  final_state: string;
+  detail: string;
+}
+
+export interface RecoveryStatus {
+  agent: { configured: boolean; status: string };
+  services: Record<string, RecoveryService>;
+  /** The complete allow-list, straight from the backend enum. */
+  permitted_operations: string[];
+  incidents: AdminIncident[];
+  notifications: unknown[];
+}
+
+export type Severity = "INFO" | "WARNING" | "HIGH" | "CRITICAL";
+
+export interface AdminNotification {
+  id: number;
+  severity: Severity;
+  event: string;
+  message: string;
+  created_at: string | null;
+  read: boolean;
+  incident_id: number | null;
+  delivered_channels: string[];
+}
+
+export interface NotificationFeed {
+  unread: number;
+  /** IN_APP is the only real channel today; the rest report NOT_CONFIGURED. */
+  channels: Record<string, string>;
+  notifications: AdminNotification[];
+}

@@ -1727,3 +1727,367 @@ th.right {
     bottom: 12px;
   }
 }
+
+/* ==========================================================================
+   ADMIN control centre and notification centre
+
+   Status colour carries meaning here, so it is spent carefully: red only
+   for a real fault, amber for degraded or in-progress, and a muted grey for
+   UNKNOWN and NOT CONFIGURED. An unconnected payment provider is not an
+   outage, and colouring it red would train the operator to ignore red.
+   ========================================================================== */
+
+.jg-cc {
+  min-height: 100%;
+  background: var(--bg);
+  padding-bottom: 48px;
+}
+
+.jg-cc-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-wrap: wrap;
+}
+.jg-cc-tag {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+  border: 1px solid var(--gold-dim);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.jg-cc-section {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 22px 18px 0;
+}
+.jg-cc-section > h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.jg-cc-sub {
+  margin: 24px 0 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.jg-cc-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.jg-cc-error {
+  max-width: 1180px;
+  margin: 14px auto 0;
+  padding: 10px 14px;
+  border: 1px solid var(--down);
+  border-radius: 8px;
+  color: var(--down);
+  font-size: 13px;
+}
+.jg-cc-result {
+  max-width: 1180px;
+  margin: 14px auto 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.jg-cc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.jg-cc-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 0;
+}
+.jg-cc-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.jg-cc-card-top h3 {
+  margin: 0;
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.jg-cc-detail {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.jg-cc-meta {
+  display: flex;
+  gap: 18px;
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.jg-cc-meta dt {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.jg-cc-meta dd {
+  margin: 2px 0 0;
+  color: var(--text);
+}
+
+.jg-pill {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.jg-pill-ok { background: var(--up-dim); color: var(--up); border-color: var(--up); }
+.jg-pill-bad { background: var(--down-dim); color: var(--down); border-color: var(--down); }
+.jg-pill-warn { background: var(--warn-dim); color: var(--warn); border-color: var(--warn); }
+/* UNKNOWN / NOT CONFIGURED: informational, never alarming. */
+.jg-pill-muted {
+  background: var(--bg-inset);
+  color: var(--text-faint);
+  border-color: var(--line-strong);
+}
+
+.jg-cc-actions,
+.jg-cc-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.jg-cc-actions .btn {
+  min-height: 40px;
+}
+
+.jg-chip {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-inset);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.jg-chip.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-glow);
+}
+
+.jg-cc-danger {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border: 1px solid var(--down);
+  border-radius: 10px;
+  background: var(--down-dim);
+}
+.jg-cc-danger > div {
+  flex: 1;
+  min-width: 240px;
+}
+.jg-cc-danger p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.jg-cc-danger .btn {
+  min-height: 44px;
+  padding: 0 20px;
+}
+
+.jg-cc-incidents {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.jg-cc-incidents details {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.jg-cc-incidents summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 11px 13px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.jg-inc-service { font-weight: 650; }
+.jg-inc-cat { color: var(--text-faint); font-family: var(--mono); font-size: 11px; }
+.jg-inc-time { margin-left: auto; color: var(--text-faint); font-size: 11.5px; }
+.jg-inc-body {
+  padding: 0 13px 13px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.jg-inc-actions {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.jg-confirm {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 22px;
+}
+.jg-confirm h3 { margin: 0 0 8px; font-size: 15px; }
+.jg-confirm p { margin: 0 0 18px; font-size: 13px; line-height: 1.6; color: var(--text-dim); }
+.jg-confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.jg-confirm-actions .btn { min-height: 42px; padding: 0 18px; }
+
+/* ------------------------------------------------------ notifications */
+
+.jg-bell-wrap { position: relative; }
+.jg-bell {
+  position: relative;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-hover);
+  color: var(--text);
+  cursor: pointer;
+}
+.jg-bell-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 17px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: var(--down);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.jg-bell-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.jg-bell-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.jg-bell-head strong { flex: 1; font-size: 13px; }
+.jg-bell-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.jg-bell-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.jg-note-row {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.jg-note-row.unread { background: var(--bg-inset); }
+.jg-note-top { display: flex; align-items: center; gap: 8px; }
+.jg-note-time { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+.jg-note-msg {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.jg-note-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.jg-note-link { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono); }
+.jg-bell-empty { padding: 18px 13px; font-size: 12.5px; color: var(--text-faint); }
+.jg-bell-foot {
+  padding: 9px 13px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.jg-sev {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.jg-sev-INFO { background: var(--bg-hover); color: var(--text-dim); }
+.jg-sev-WARNING { background: var(--warn-dim); color: var(--warn); }
+.jg-sev-HIGH { background: var(--down-dim); color: var(--down); }
+.jg-sev-CRITICAL { background: var(--down); color: #fff; }
+
+@media (max-width: 640px) {
+  .jg-cc-top { padding: 10px 12px; }
+  .jg-cc-section { padding: 18px 12px 0; }
+  .jg-cc-grid { grid-template-columns: 1fr; }
+  .jg-cc-danger { flex-direction: column; align-items: stretch; }
+  .jg-cc-danger .btn { width: 100%; }
+  .jg-cc-actions .btn { flex: 1 1 140px; }
+  .jg-inc-time { margin-left: 0; width: 100%; }
+  .jg-bell-panel {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: 64px;
+    width: auto;
+  }
+}

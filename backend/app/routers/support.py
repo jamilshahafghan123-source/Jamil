@@ -206,6 +206,34 @@ async def ask(
     )
 
 
+@router.get("/platform-status")
+async def platform_status(
+    _user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Customer-safe platform status (section 7).
+
+    Deliberately coarse. A customer learns whether trading is connected and,
+    if automated trading is paused, a plain-language reason — never a
+    container name, a port, a host or an exception. The detailed per-service
+    view lives behind require_admin in the control centre.
+    """
+    connected = False
+    try:
+        connected = await mt5.connected()
+    except Exception:  # noqa: BLE001 - unreachable is a status, not a 500
+        connected = False
+
+    safe = safe_mode_svc.evaluate(bridge_connected=connected, last_tick_at=None)
+    return {
+        "trading_connection": "CONNECTED" if connected else "UNAVAILABLE",
+        "automated_trading": "PAUSED" if safe.active else "ACTIVE",
+        "banner": safe.banner,
+        # Already written for a customer to read; no internals reach here.
+        "reasons": list(safe.customer_messages),
+    }
+
+
 @router.get("/tickets", response_model=list[TicketOut])
 async def my_tickets(
     user: User = Depends(current_user),

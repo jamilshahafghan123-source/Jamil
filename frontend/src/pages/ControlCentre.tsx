@@ -1,0 +1,460 @@
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../lib/api";
+import { Brand } from "../components/Brand";
+import { NotificationBell } from "../components/NotificationBell";
+import type {
+  AdminIncident,
+  ComponentStatus,
+  ControlCentre as ControlCentreData,
+  RecoveryStatus,
+} from "../lib/types";
+
+/**
+ * ADMIN-only control centre.
+ *
+ * Every endpoint behind this page is gated by require_admin server-side and
+ * 404s for a customer, so this page is a convenience, not the boundary.
+ *
+ * Two rules the layout enforces:
+ *
+ * 1. NOT CONFIGURED is not a fault. A payment provider nobody has connected
+ *    reads as a neutral state, not as an outage — colouring it red would
+ *    train the operator to ignore red.
+ * 2. Mutating actions confirm first. The buttons here restart real services
+ *    on a real machine, and the recovery backend accepts only allow-listed
+ *    operations, so there is deliberately no place to type a command.
+ */
+
+const LABELS: Record<string, string> = {
+  backend: "Backend",
+  database: "Database",
+  mt5: "MT5",
+  mt5_bridge: "MT5 Bridge",
+  market_data: "Market Data",
+  ai_workers: "AI Workers",
+  payment_service: "Payment Service",
+  notification_service: "Notification Service",
+  BRIDGE: "MT5 Bridge",
+  BACKEND: "Backend",
+  FRONTEND: "Frontend",
+  DATABASE: "Database",
+  DOCKER: "Docker",
+  MT5: "MT5",
+  MARKET_DATA: "Market Data",
+};
+
+/** Backend vocabulary → the words section 1 asks to display. */
+function displayStatus(status: ComponentStatus | string): string {
+  switch (status) {
+    case "UP":
+      return "HEALTHY";
+    case "DOWN":
+      return "OFFLINE";
+    case "UNKNOWN":
+      return "UNKNOWN";
+    case "NOT_CONFIGURED":
+      return "NOT CONFIGURED";
+    case "NEEDS_ADMIN":
+      return "NEEDS ADMIN";
+    default:
+      return String(status).replace(/_/g, " ");
+  }
+}
+
+function tone(status: string): string {
+  if (status === "UP" || status === "HEALTHY" || status === "CONNECTED") return "ok";
+  if (status === "RECOVERED") return "ok";
+  if (status === "DOWN" || status === "OFFLINE" || status === "FAILED") return "bad";
+  if (status === "NEEDS_ADMIN") return "bad";
+  if (status === "DEGRADED" || status === "RECOVERING" || status === "MONITORING")
+    return "warn";
+  // UNKNOWN and NOT_CONFIGURED are deliberately neutral, never alarming.
+  return "muted";
+}
+
+function when(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
+
+const INCIDENT_FILTERS = ["ALL", "OPEN", "RECOVERING", "NEEDS_ADMIN", "RECOVERED"];
+
+type Pending = { operation: string; label: string } | null;
+
+export function ControlCentre({ onBack }: { onBack: () => void }) {
+  const [data, setData] = useState<ControlCentreData | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryStatus | null>(null);
+  const [incidents, setIncidents] = useState<AdminIncident[]>([]);
+  const [filter, setFilter] = useState("ALL");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const [stopPending, setStopPending] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [cc, rec] = await Promise.all([
+        api.adminControlCentre(),
+        api.adminRecovery(),
+      ]);
+      setData(cc);
+      setRecovery(rec);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load status");
+    }
+  }, []);
+
+  const loadIncidents = useCallback(async () => {
+    try {
+      setIncidents(await api.adminIncidents(filter));
+    } catch {
+      /* the panel simply stays empty; the banner above already reports */
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    void load();
+    const t = window.setInterval(() => void load(), 30_000);
+    return () => window.clearInterval(t);
+  }, [load]);
+
+  useEffect(() => {
+    void loadIncidents();
+  }, [loadIncidents]);
+
+  async function runOperation(operation: string) {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await api.adminRunRecovery(operation);
+      setResult(
+        `${res.operation}: ${res.ok ? "succeeded" : "failed"}${
+          res.detail ? ` — ${res.detail}` : ""
+        }`,
+      );
+      await load();
+      await loadIncidents();
+    } catch (err) {
+      setResult(err instanceof Error ? err.message : "Operation failed");
+    } finally {
+      setBusy(false);
+      setPending(null);
+    }
+  }
+
+  async function emergencyStopAll() {
+    setBusy(true);
+    try {
+      const res = await api.adminEmergencyStopAll();
+      setResult(res.detail);
+      await load();
+    } catch (err) {
+      setResult(err instanceof Error ? err.message : "Emergency stop failed");
+    } finally {
+      setBusy(false);
+      setStopPending(false);
+    }
+  }
+
+  const permitted = recovery?.permitted_operations ?? [];
+  const mutating = permitted.filter(
+    (op) => op.startsWith("RESTART_") || op.startsWith("START_"),
+  );
+
+  return (
+    <div className="jg-cc">
+      <header className="jg-cc-top">
+        <Brand size={26} />
+        <span className="jg-cc-tag">Control Centre</span>
+        <div className="jg-spacer" />
+        <NotificationBell />
+        <button type="button" className="btn" onClick={onBack}>
+          Back to dashboard
+        </button>
+      </header>
+
+      {error && <p className="jg-cc-error">{error}</p>}
+      {result && (
+        <p className="jg-cc-result" role="status">
+          {result}
+        </p>
+      )}
+
+      {/* ------------------------------------------------ system health */}
+      <section className="jg-cc-section">
+        <h2>System health</h2>
+        <div className="jg-cc-grid">
+          <StatusCard
+            name="Windows Agent"
+            status={recovery?.agent.configured ? "CONNECTED" : "NOT_CONFIGURED"}
+            detail={
+              recovery?.agent.configured
+                ? "Recovery agent configured."
+                : "No recovery agent configured."
+            }
+          />
+          {(data?.system_health.components ?? []).map((c) => (
+            <StatusCard
+              key={c.component}
+              name={LABELS[c.component] ?? c.component}
+              status={c.status}
+              detail={c.detail}
+              checkedAt={c.checked_at}
+            />
+          ))}
+          <StatusCard
+            name="AI Bot"
+            status={(data?.trading.bots_enabled ?? 0) > 0 ? "UP" : "UNKNOWN"}
+            detail={`${data?.trading.bots_enabled ?? 0} bot(s) enabled · ${
+              data?.trading.accounts_emergency_stopped ?? 0
+            } account(s) stopped`}
+          />
+          <StatusCard
+            name="Safe Mode"
+            status={data?.safe_mode.active ? "DEGRADED" : "UP"}
+            detail={
+              data?.safe_mode.active
+                ? // The backend already writes these for a human to read;
+                  // showing the raw enum would make the operator decode it.
+                  data.safe_mode.customer_messages.join(" ") ||
+                  data.safe_mode.reasons.join(", ").replace(/_/g, " ")
+                : "Automated trading permitted."
+            }
+          />
+        </div>
+      </section>
+
+      {/* --------------------------------------------- recovery services */}
+      <section className="jg-cc-section">
+        <h2>Recovery</h2>
+        <div className="jg-cc-grid">
+          {Object.entries(recovery?.services ?? {}).map(([name, svc]) => (
+            <article key={name} className="jg-cc-card">
+              <div className="jg-cc-card-top">
+                <h3>{LABELS[name] ?? name}</h3>
+                <span className={`jg-pill jg-pill-${tone(svc.state)}`}>
+                  {displayStatus(svc.state)}
+                </span>
+              </div>
+              <p className="jg-cc-detail">{svc.policy}</p>
+              <dl className="jg-cc-meta">
+                <div>
+                  <dt>Attempts</dt>
+                  <dd>{svc.attempts_in_window}</dd>
+                </div>
+                <div>
+                  <dt>Auto repair</dt>
+                  <dd>{svc.has_automatic_repair ? "yes" : "no"}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+
+        <h3 className="jg-cc-sub">Actions</h3>
+        <p className="jg-cc-note">
+          Only operations the recovery backend accepts are shown. There is no
+          free-form command entry.
+        </p>
+        <div className="jg-cc-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => void runOperation("VERIFY_HEALTH")}
+          >
+            Check now
+          </button>
+          {mutating.map((op) => (
+            <button
+              key={op}
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() =>
+                setPending({ operation: op, label: op.replace(/_/g, " ") })
+              }
+            >
+              {op.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ------------------------------------------------ emergency stop */}
+      <section className="jg-cc-section">
+        <h2>Emergency control</h2>
+        <div className="jg-cc-danger">
+          <div>
+            <strong>Emergency stop all automated trading</strong>
+            <p>
+              Halts automation on every account and disables all bots. Open
+              positions are <em>not</em> closed and stay manageable.
+            </p>
+            <p className="jg-cc-note">
+              Currently stopped: {data?.trading.accounts_emergency_stopped ?? 0}{" "}
+              account(s).
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn danger"
+            disabled={busy}
+            onClick={() => setStopPending(true)}
+          >
+            Emergency stop all
+          </button>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------- incidents */}
+      <section className="jg-cc-section">
+        <h2>Incidents</h2>
+        <div className="jg-cc-filters">
+          {INCIDENT_FILTERS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              className={filter === f ? "jg-chip active" : "jg-chip"}
+              onClick={() => setFilter(f)}
+            >
+              {f.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+        {incidents.length === 0 ? (
+          <p className="jg-cc-note">No incidents recorded.</p>
+        ) : (
+          <ul className="jg-cc-incidents">
+            {incidents.map((i) => (
+              <li key={i.id}>
+                <details>
+                  <summary>
+                    <span className={`jg-pill jg-pill-${tone(i.status)}`}>
+                      {displayStatus(i.status)}
+                    </span>
+                    <span className="jg-inc-service">
+                      {LABELS[i.service] ?? i.service}
+                    </span>
+                    <span className="jg-inc-cat">{i.category}</span>
+                    <span className="jg-inc-time">{when(i.detected_at)}</span>
+                  </summary>
+                  <div className="jg-inc-body">
+                    <p>{i.detail || "No further detail."}</p>
+                    <p className="jg-cc-note">
+                      Attempt {i.attempt_number} · final state{" "}
+                      {i.final_state || "—"} · recovered {when(i.recovered_at)}
+                    </p>
+                    {i.actions.length > 0 && (
+                      <ul className="jg-inc-actions">
+                        {i.actions.map((a, idx) => (
+                          <li key={`${a.operation}-${idx}`}>
+                            <code>{a.operation}</code> {a.ok ? "ok" : "failed"}
+                            {a.detail ? ` — ${a.detail}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* --------------------------------------------------- confirmations */}
+      {pending && (
+        <ConfirmDialog
+          title={pending.label}
+          body={`This will run ${pending.label} on the host machine. It is recorded in the incident log.`}
+          confirmLabel="Run it"
+          onCancel={() => setPending(null)}
+          onConfirm={() => void runOperation(pending.operation)}
+          busy={busy}
+        />
+      )}
+      {stopPending && (
+        <ConfirmDialog
+          title="Emergency stop all automated trading"
+          body="Automation stops on every account and all bots are disabled. Open positions are NOT closed."
+          confirmLabel="Stop all automation"
+          danger
+          onCancel={() => setStopPending(false)}
+          onConfirm={() => void emergencyStopAll()}
+          busy={busy}
+        />
+      )}
+    </div>
+  );
+}
+
+function StatusCard({
+  name,
+  status,
+  detail,
+  checkedAt,
+}: {
+  name: string;
+  status: string;
+  detail: string;
+  checkedAt?: string | null;
+}) {
+  return (
+    <article className="jg-cc-card">
+      <div className="jg-cc-card-top">
+        <h3>{name}</h3>
+        <span className={`jg-pill jg-pill-${tone(status)}`}>
+          {displayStatus(status)}
+        </span>
+      </div>
+      <p className="jg-cc-detail">{detail || "—"}</p>
+      {checkedAt !== undefined && (
+        <p className="jg-cc-note">Last checked {when(checkedAt)}</p>
+      )}
+    </article>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+  busy,
+  danger,
+}: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  busy: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="jg-confirm">
+        <h3>{title}</h3>
+        <p>{body}</p>
+        <div className="jg-confirm-actions">
+          <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={danger ? "btn danger" : "btn primary"}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,10 +1,14 @@
 ﻿import type {
+  AdminIncident,
   Analysis,
   BarsResponse,
+  ControlCentre,
   DashboardSnapshot,
   Deal,
   ExecutionResult,
+  NotificationFeed,
   OrderLog,
+  RecoveryStatus,
   RiskSettings,
   Signal,
   Timeframe,
@@ -105,6 +109,60 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question }),
     }),
+
+  /** Sanitized status any signed-in customer may see. No infrastructure. */
+  platformStatus: () =>
+    request<{
+      trading_connection: string;
+      automated_trading: string;
+      banner: string | null;
+      reasons: string[];
+    }>("/api/support/platform-status"),
+
+  // ---- ADMIN only. Every one of these 404s for a customer. --------------
+
+  adminControlCentre: () => request<ControlCentre>("/api/admin/control-centre"),
+
+  adminRecovery: () => request<RecoveryStatus>("/api/admin/recovery"),
+
+  adminRunRecovery: (operation: string) =>
+    request<{ operation: string; ok: boolean; detail: string; state: string }>(
+      "/api/admin/recovery/run",
+      { method: "POST", body: JSON.stringify({ operation }) },
+    ),
+
+  adminIncidents: (statusFilter = "ALL") =>
+    request<AdminIncident[]>(
+      `/api/admin/incidents?status_filter=${encodeURIComponent(statusFilter)}`,
+    ),
+
+  adminNotifications: (severity?: string, unreadOnly = false) => {
+    const q = new URLSearchParams();
+    if (severity) q.set("severity", severity);
+    if (unreadOnly) q.set("unread_only", "true");
+    const qs = q.toString();
+    return request<NotificationFeed>(
+      `/api/admin/notifications${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  adminMarkNotificationRead: (id: number) =>
+    request<{ id: number; read: boolean }>(
+      `/api/admin/notifications/${id}/read`,
+      { method: "POST" },
+    ),
+
+  adminMarkAllNotificationsRead: () =>
+    request<{ marked: number }>("/api/admin/notifications/read-all", {
+      method: "POST",
+    }),
+
+  adminEmergencyStopAll: () =>
+    request<{
+      stopped_accounts: number;
+      positions_closed: number;
+      detail: string;
+    }>("/api/admin/emergency-stop-all", { method: "POST" }),
 
   supportTickets: () =>
     request<

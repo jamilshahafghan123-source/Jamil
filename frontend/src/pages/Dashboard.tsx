@@ -14,6 +14,8 @@ import type {
 import { Badge, Banner, Card, Empty, Spinner, Stat } from "../components/Primitives";
 import { Brand } from "../components/Brand";
 import { SupportChat } from "../components/SupportChat";
+import { ControlCentre } from "./ControlCentre";
+import { NotificationBell } from "../components/NotificationBell";
 import {
   AnalysisPanel,
   DealHistory,
@@ -29,6 +31,11 @@ import { BarChart } from "../components/Bar";
 const REAL_CONFIRMATION = "I UNDERSTAND THE RISK OF REAL MONEY TRADING";
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
+  // Dashboard renders only for ADMIN (see App.tsx), so this view switch is
+  // already behind the role gate — and every endpoint it reaches is gated
+  // again server-side by require_admin.
+  const [view, setView] = useState<"dashboard" | "control">("dashboard");
+
   const [snap, setSnap] = useState<DashboardSnapshot | null>(null);
   const [risk, setRisk] = useState<RiskSettings | null>(null);
   const [signal, setSignal] = useState<Signal | null>(null);
@@ -257,6 +264,10 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const currency = account?.currency ? `${account.currency} ` : "";
   const isLiveAccount = account?.trade_mode === "real";
 
+  if (view === "control") {
+    return <ControlCentre onBack={() => setView("dashboard")} />;
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -296,6 +307,10 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
           Stop bot
         </button>
 
+        <NotificationBell />
+        <button className="btn sm" onClick={() => setView("control")}>
+          Control Centre
+        </button>
         <button className="btn sm" onClick={onLogout}>
           Sign out
         </button>

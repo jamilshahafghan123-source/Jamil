@@ -340,6 +340,134 @@ async def run_recovery_operation(
     )
 
 
+@router.get("/notifications")
+async def list_notifications(
+    severity: str | None = None,
+    unread_only: bool = False,
+    limit: int = 100,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Owner notification centre.
+
+    `delivered_channels` is returned as stored, which is empty for every row
+    today: only IN_APP is real, and nothing here claims an email or push was
+    sent when no provider is configured.
+    """
+    stmt = select(Notification).order_by(Notification.id.desc())
+    if severity:
+        try:
+            stmt = stmt.where(Notification.severity == NotificationSeverity(severity))
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Unknown severity"
+            ) from None
+    if unread_only:
+        stmt = stmt.where(Notification.read_at.is_(None))
+    rows = (await db.execute(stmt.limit(min(limit, 200)))).scalars().all()
+
+    unread = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.read_at.is_(None))
+        )
+        or 0
+    )
+    return {
+        "unread": unread,
+        "channels": {
+            # The delivery abstraction. Only IN_APP is real; the rest are
+            # declared so a future deliverer has a contract, and are
+            # reported as unconfigured rather than silently pretended.
+            "IN_APP": "ACTIVE",
+            "EMAIL": "NOT_CONFIGURED",
+            "PUSH": "NOT_CONFIGURED",
+            "SMS": "NOT_CONFIGURED",
+        },
+        "notifications": [
+            {
+                "id": n.id,
+                "severity": n.severity.value,
+                "event": n.event,
+                "message": n.message,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "read": n.read_at is not None,
+                "incident_id": n.incident_id,
+                "delivered_channels": n.delivered_channels or [],
+            }
+            for n in rows
+        ],
+    }
+
+
+@router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: int,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await db.get(Notification, notification_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if row.read_at is None:
+        row.read_at = datetime.now(timezone.utc)
+        await db.commit()
+    return {"id": row.id, "read": True}
+
+
+@router.post("/notifications/read-all")
+async def mark_all_notifications_read(
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        (
+            await db.execute(
+                select(Notification).where(Notification.read_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.read_at = now
+    await db.commit()
+    return {"marked": len(rows)}
+
+
+@router.get("/incidents")
+async def list_incidents(
+    status_filter: str | None = None,
+    limit: int = 100,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    stmt = select(Incident).order_by(Incident.id.desc())
+    if status_filter and status_filter != "ALL":
+        try:
+            stmt = stmt.where(Incident.status == IncidentStatus(status_filter))
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown status") from None
+    rows = (await db.execute(stmt.limit(min(limit, 200)))).scalars().all()
+    return [
+        {
+            "id": i.id,
+            "service": i.service,
+            "category": i.category,
+            "status": i.status.value,
+            "detected_at": i.detected_at.isoformat() if i.detected_at else None,
+            "recovered_at": i.recovered_at.isoformat() if i.recovered_at else None,
+            "attempt_number": i.attempt_number,
+            "actions": i.actions or [],
+            "final_state": i.final_state,
+            "detail": i.detail,
+        }
+        for i in rows
+    ]
+
+
 @router.post("/emergency-stop-all", response_model=EmergencyStopAllResult)
 async def emergency_stop_all(
     admin: User = Depends(require_admin),
