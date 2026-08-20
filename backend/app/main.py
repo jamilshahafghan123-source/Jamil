@@ -26,6 +26,7 @@ from .routers import (
     support,
     trading,
     ws,
+    strategies,
 )
 from .security import hash_password
 from .services import bot
@@ -116,6 +117,7 @@ app.include_router(support.admin_router)
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(analysis.router)
+app.include_router(strategies.router)
 app.include_router(risk.router)
 app.include_router(trading.router)
 app.include_router(ws.router)

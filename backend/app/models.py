@@ -647,3 +647,48 @@ class ChartDrawing(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class StrategyActionMode(str, enum.Enum):
+    """Mirrors services.strategy.ActionMode.
+
+    REAL_AUTO is absent here too: a value the column cannot hold is a
+    value no row can carry, whatever a future caller tries to store.
+    """
+
+    ALERT_ONLY = "ALERT_ONLY"
+    AI_ASSIST = "AI_ASSIST"
+    DEMO_AUTO = "DEMO_AUTO"
+
+
+class Strategy(Base):
+    """A customer's saved strategy (section 36).
+
+    `rule` holds the validated condition tree as JSON. It is DATA, not
+    code: it is parsed back through services.strategy on every read, so a
+    row edited directly in the database still cannot introduce anything
+    outside the closed vocabulary.
+    """
+
+    __tablename__ = "strategies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80))
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    timeframe: Mapped[str] = mapped_column(String(8))
+    direction: Mapped[str] = mapped_column(String(8))
+    action_mode: Mapped[StrategyActionMode] = mapped_column(
+        Enum(StrategyActionMode), default=StrategyActionMode.ALERT_ONLY
+    )
+    rule: Mapped[dict] = mapped_column(JSON, default=dict)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
