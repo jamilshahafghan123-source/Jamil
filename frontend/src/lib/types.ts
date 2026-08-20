@@ -534,3 +534,80 @@ export interface SecurityOverview {
     note: string;
   };
 }
+
+/* ------------------------------------------------- J Gold AI demo account
+ * VIRTUAL money. Not broker funds, not subscription money. The backend
+ * states that in the payload itself so no surface can forget to say it.
+ */
+
+export interface DemoAccountState {
+  balance: number;
+  equity: number;
+  floating_pnl: number;
+  realized_pnl: number;
+  free_margin: number;
+  open_positions: number;
+  currency: string;
+  account_type: "J_GOLD_AI_DEMO";
+  virtual_money: boolean;
+  withdrawable: boolean;
+}
+
+export type TradeSource = "MANUAL" | "AI_ASSIST" | "AI_AUTO";
+
+export interface DemoPosition {
+  id: number;
+  symbol: string;
+  side: "BUY" | "SELL";
+  volume: number;
+  entry_price: number;
+  stop_loss: number | null;
+  take_profit: number | null;
+  source: TradeSource;
+  signal_confidence: number | null;
+  signal_rr: number | null;
+  opened_at: string | null;
+  floating_pnl: number | null;
+}
+
+export interface DemoAccountResponse {
+  account: DemoAccountState;
+  starting_balance: number;
+  positions: DemoPosition[];
+  market_price: { bid: number; ask: number } | null;
+  can_open: boolean;
+  blocked_reason: string | null;
+}
+
+export interface DemoTrade {
+  id: number;
+  symbol: string;
+  side: "BUY" | "SELL";
+  volume: number;
+  entry_price: number;
+  exit_price: number;
+  realized_pnl: number;
+  source: TradeSource;
+  close_reason: string;
+  signal_confidence: number | null;
+  signal_rr: number | null;
+  opened_at: string | null;
+  closed_at: string | null;
+  account_type: string;
+}
+
+export interface InstrumentInfo {
+  symbol: string;
+  display_name: string;
+  asset_class: string;
+  status: "ENABLED" | "COMING_SOON" | "DISABLED";
+  tradable: boolean;
+  digits: number;
+  contract_size: number;
+  tick_size: number;
+  tick_value: number;
+  min_volume: number;
+  max_volume: number;
+  volume_step: number;
+  quote_currency: string;
+}

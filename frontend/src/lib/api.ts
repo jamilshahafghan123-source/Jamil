@@ -5,9 +5,13 @@
   Analysis,
   BarsResponse,
   ControlCentre,
+  DemoAccountResponse,
+  DemoPosition,
+  DemoTrade,
   DashboardSnapshot,
   Deal,
   ExecutionResult,
+  InstrumentInfo,
   NotificationFeed,
   OrderLog,
   RecoveryStatus,
@@ -15,6 +19,7 @@
   SecurityOverview,
   Signal,
   Timeframe,
+  TradeSource,
   TradingMode,
 } from "./types";
 
@@ -94,9 +99,15 @@ export const api = {
     }),
 
   me: () =>
-    request<{ id: number; email: string; role: string; is_active: boolean }>(
-      "/api/auth/me",
-    ),
+    request<{
+      id: number;
+      email: string;
+      role: string;
+      is_active: boolean;
+      /** Navigation hint only — the backend re-checks on every gated route. */
+      platform_access: boolean;
+      demo_access: boolean;
+    }>("/api/auth/me"),
 
   dashboard: () => request<DashboardSnapshot>("/api/dashboard"),
 
@@ -178,6 +189,44 @@ export const api = {
     request<AdminTicket>(`/api/admin/support/tickets/${id}/reply`, {
       method: "POST",
       body: JSON.stringify({ body }),
+    }),
+
+  // ---- J Gold AI internal demo. Virtual money; never reaches a broker. --
+
+  demoAccount: () => request<DemoAccountResponse>("/api/demo/account"),
+
+  demoInstruments: () =>
+    request<{ default: string; by_asset_class: Record<string, InstrumentInfo[]> }>(
+      "/api/demo/instruments",
+    ),
+
+  demoOpen: (body: {
+    symbol: string;
+    side: "BUY" | "SELL";
+    volume: number;
+    stop_loss?: number | null;
+    take_profit?: number | null;
+    source?: TradeSource;
+    signal_confidence?: number | null;
+    signal_rr?: number | null;
+  }) =>
+    request<{ position: DemoPosition; virtual_money: boolean }>(
+      "/api/demo/positions",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  demoClose: (id: number) =>
+    request<{ realized_pnl: number; balance: number }>(
+      `/api/demo/positions/${id}/close`,
+      { method: "POST" },
+    ),
+
+  demoTrades: () => request<DemoTrade[]>("/api/demo/trades"),
+
+  demoReset: () =>
+    request<{ balance: number; detail: string }>("/api/demo/reset", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
     }),
 
   adminSecurity: () => request<SecurityOverview>("/api/admin/security"),

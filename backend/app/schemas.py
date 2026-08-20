@@ -34,6 +34,13 @@ class UserOut(BaseModel):
     email: str
     role: str
     is_active: bool
+    #: Whether this account may use paid platform features. The frontend
+    #: routes on it; the backend still enforces it independently on every
+    #: gated route, so this is a UX hint and never the boundary.
+    platform_access: bool = False
+    #: Demo features specifically. Equal to platform_access today; a
+    #: separate field so opening a free demo is a backend change alone.
+    demo_access: bool = False
 
 
 # ------------------------------------------------------------------ account

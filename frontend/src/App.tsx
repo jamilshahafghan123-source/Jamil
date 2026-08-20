@@ -5,6 +5,7 @@ import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { SignUp } from "./pages/SignUp";
 import { SubscriptionRequired } from "./pages/SubscriptionRequired";
+import { TradingWorkspace } from "./pages/TradingWorkspace";
 
 type PublicPage = "home" | "login" | "signup";
 
@@ -13,6 +14,13 @@ type CurrentUser = {
   email: string;
   role: string;
   is_active: boolean;
+  /**
+   * Navigation hints from the backend. They decide which page renders, not
+   * what the account may do — every gated route enforces entitlement again
+   * server-side, so a tampered value gains nothing but a 403.
+   */
+  platform_access: boolean;
+  demo_access: boolean;
 };
 
 export default function App() {
@@ -60,6 +68,21 @@ export default function App() {
   if (authed && user?.role === "ADMIN") {
     return (
       <Dashboard
+        onLogout={() => {
+          auth.clear();
+          setAuthed(false);
+          setUser(null);
+          setPage("home");
+        }}
+      />
+    );
+  }
+
+  // An entitled customer lands in the trading workspace. Without
+  // entitlement they see the subscription gate, exactly as before.
+  if (authed && user?.role === "CUSTOMER" && user.demo_access) {
+    return (
+      <TradingWorkspace
         onLogout={() => {
           auth.clear();
           setAuthed(false);

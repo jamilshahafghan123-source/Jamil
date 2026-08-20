@@ -10,8 +10,9 @@ from .. import audit
 from ..config import settings
 from ..db import get_db
 from ..deps import current_user, login_rate_limit
-from ..models import RiskSettings, User, UserRole
+from ..models import RiskSettings, Subscription, User, UserRole
 from ..schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from ..services import entitlements
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -104,5 +105,29 @@ async def login(
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: User = Depends(current_user)) -> User:
-    return user
+async def me(
+    user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+) -> UserOut:
+    """Identity plus entitlement, so the client can route without guessing.
+
+    These flags are a hint for navigation only. Every gated route checks
+    entitlement again server-side, so a client that lied about them would
+    gain nothing.
+    """
+    sub = (
+        await db.execute(select(Subscription).where(Subscription.user_id == user.id))
+    ).scalar_one_or_none()
+    common = dict(
+        role=user.role,
+        is_active=user.is_active,
+        status=sub.status if sub else None,
+        current_period_end=sub.current_period_end if sub else None,
+    )
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        role=user.role.value if hasattr(user.role, "value") else str(user.role),
+        is_active=user.is_active,
+        platform_access=entitlements.has_platform_access(**common),
+        demo_access=entitlements.has_demo_access(**common),
+    )
