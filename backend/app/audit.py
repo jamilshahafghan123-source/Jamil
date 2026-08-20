@@ -45,6 +45,7 @@ RESTORE_REQUESTED = "backup.restore_requested"
 RESTORE_RESULT = "backup.restore_result"
 DEMO_POSITION_OPENED = "demo.position_opened"
 DEMO_RESET = "demo.reset"
+DEMO_AI_AUTO_EXECUTED = "demo.ai_auto_executed"
 
 
 async def record(

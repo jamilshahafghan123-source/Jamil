@@ -22,8 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit
 from ..config import settings
 from ..db import SessionLocal
-from ..models import RiskSettings, Signal, SignalAction, TradingMode, User
-from . import executor, maintenance, risk_engine, safe_mode
+from ..models import (
+    ExecutionVenue,
+    RiskSettings,
+    Signal,
+    SignalAction,
+    TradingMode,
+    User,
+)
+from . import demo_execution, executor, maintenance, risk_engine, safe_mode
 from .analyst import analyze
 from .indicators import TIMEFRAMES, build_snapshot
 from .mt5_client import BridgeError, mt5
@@ -445,6 +452,37 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
         return
 
     if not autonomous:
+        return
+
+    # VENUE ROUTING. Approval and destination are separate questions: the
+    # risk manager decides whether a trade may happen, the venue decides
+    # where it goes. Neither adapter is reachable from the other.
+    if row.execution_venue is ExecutionVenue.JGOLD_DEMO:
+        try:
+            tick = await mt5.tick()
+            quote = demo_execution.demo_engine.Quote(
+                bid=float(tick.get("bid") or 0.0), ask=float(tick.get("ask") or 0.0)
+            )
+        except Exception:  # noqa: BLE001 - no price means no trade
+            log.warning("AI Auto demo: no usable price for user %s", user.id)
+            return
+        if quote.bid <= 0 or quote.ask <= 0:
+            return
+
+        demo_result = await demo_execution.execute_signal(
+            db,
+            user_id=user.id,
+            signal=signal,
+            settings_row=row,
+            quote=quote,
+        )
+        await db.commit()
+        log.info(
+            "AI Auto demo user=%s executed=%s reasons=%s",
+            user.id,
+            demo_result.executed,
+            demo_result.reasons,
+        )
         return
 
     result = await executor.execute_signal(

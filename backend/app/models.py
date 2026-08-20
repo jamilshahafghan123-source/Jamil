@@ -39,6 +39,19 @@ class TradingMode(str, enum.Enum):
     REAL = "REAL"  # AI auto-executes on a live account. Gated hard.
 
 
+class ExecutionVenue(str, enum.Enum):
+    """Where an approved automated signal is sent.
+
+    Two venues, and they never share an adapter. MT5_BRIDGE is the existing
+    broker path; JGOLD_DEMO is the internal simulator that reaches no broker
+    at all. Defaulting to MT5_BRIDGE keeps every existing account behaving
+    exactly as it did before this column existed.
+    """
+
+    MT5_BRIDGE = "MT5_BRIDGE"
+    JGOLD_DEMO = "JGOLD_DEMO"
+
+
 class UserRole(str, enum.Enum):
     ADMIN = "ADMIN"
     CUSTOMER = "CUSTOMER"
@@ -100,6 +113,12 @@ class RiskSettings(Base):
     min_confidence: Mapped[int] = mapped_column(Integer, default=70)
     min_rr: Mapped[float] = mapped_column(Float, default=1.5)
     max_spread_points: Mapped[int] = mapped_column(Integer, default=50)
+
+    #: Which execution adapter AI Auto uses. Defaults to the broker bridge,
+    #: so existing accounts are unaffected by this column appearing.
+    execution_venue: Mapped[ExecutionVenue] = mapped_column(
+        Enum(ExecutionVenue), default=ExecutionVenue.MT5_BRIDGE
+    )
 
     # Set when the daily loss limit trips; cleared at the next UTC day roll.
     halted_until_date: Mapped[date | None] = mapped_column(Date, nullable=True)
