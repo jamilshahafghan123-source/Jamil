@@ -18,6 +18,9 @@
   RecoveryStatus,
   BrokerDirectory,
   RiskSettings,
+  SavedStrategy,
+  StrategyRule,
+  StrategyVocabulary,
   SessionMap,
   SecurityOverview,
   Signal,
@@ -232,6 +235,46 @@ export const api = {
 
   /** Broker directory. Statuses only — no credentials, no ratings. */
   brokers: () => request<BrokerDirectory>("/api/demo/brokers"),
+
+  // ---- Strategies. Rules are data; the backend refuses anything else. --
+
+  strategyVocabulary: () =>
+    request<StrategyVocabulary>("/api/strategies/vocabulary"),
+
+  strategies: () => request<SavedStrategy[]>("/api/strategies"),
+
+  createStrategy: (body: {
+    name: string; symbol: string; timeframe: string;
+    direction: "BUY" | "SELL"; action_mode: string; rule: StrategyRule;
+    notes?: string; enabled?: boolean;
+  }) =>
+    request<SavedStrategy>("/api/strategies", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+
+  updateStrategy: (
+    id: number,
+    body: {
+      name: string; symbol: string; timeframe: string;
+      direction: "BUY" | "SELL"; action_mode: string; rule: StrategyRule;
+      notes?: string; enabled?: boolean;
+    },
+  ) =>
+    request<SavedStrategy>(`/api/strategies/${id}`, {
+      method: "PUT", body: JSON.stringify(body),
+    }),
+
+  cloneStrategy: (id: number) =>
+    request<SavedStrategy>(`/api/strategies/${id}/clone`, { method: "POST" }),
+
+  setStrategyEnabled: (id: number, enabled: boolean) =>
+    request<SavedStrategy>(
+      `/api/strategies/${id}/enabled?enabled=${enabled ? "true" : "false"}`,
+      { method: "POST" },
+    ),
+
+  deleteStrategy: (id: number) =>
+    request<{ deleted: number }>(`/api/strategies/${id}`, { method: "DELETE" }),
 
   demoOpen: (body: {
     symbol: string;

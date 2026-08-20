@@ -730,3 +730,47 @@ export interface BrokerDirectory {
   funded_accounts: { supported: boolean; status: string; detail: string };
   disclaimer: string;
 }
+
+/** Strategy builder (sections 32-37). Rules are DATA, never code. */
+export interface StrategyVocabulary {
+  fields: { field: string; boolean: boolean; zone: boolean; labels: string[] }[];
+  operators: string[];
+  logic: string[];
+  action_modes: string[];
+  timeframes: string[];
+  limits: { max_conditions: number; max_depth: number; max_strategies: number };
+  note: string;
+}
+
+export interface StrategyCondition {
+  field: string;
+  operator: string;
+  value: string | number | null;
+  value_is_field?: boolean;
+  period: number | null;
+  timeframe: string;
+}
+
+export interface StrategyGroup {
+  logic: string;
+  children: (StrategyGroup | StrategyCondition)[];
+}
+
+export type StrategyRule = StrategyGroup | StrategyCondition;
+
+export interface SavedStrategy {
+  id: number;
+  name: string;
+  symbol: string;
+  timeframe: string;
+  direction: "BUY" | "SELL";
+  action_mode: string;
+  rule: StrategyRule | Record<string, never>;
+  description: string[];
+  /** False when a stored rule no longer parses; it is not rendered as runnable. */
+  valid: boolean;
+  notes: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}

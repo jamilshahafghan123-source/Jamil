@@ -30,7 +30,14 @@ import { BarChart } from "../components/Bar";
 
 const REAL_CONFIRMATION = "I UNDERSTAND THE RISK OF REAL MONEY TRADING";
 
-export function Dashboard({ onLogout }: { onLogout: () => void }) {
+export function Dashboard({
+  onLogout,
+  onOpenWorkspace,
+}: {
+  onLogout: () => void;
+  /** Present whenever this account may reach the trading workspace. */
+  onOpenWorkspace?: () => void;
+}) {
   // Dashboard renders only for ADMIN (see App.tsx), so this view switch is
   // already behind the role gate — and every endpoint it reaches is gated
   // again server-side by require_admin.
@@ -311,6 +318,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         <button className="btn sm" onClick={() => setView("control")}>
           Control Centre
         </button>
+        {onOpenWorkspace && (
+          <button className="btn sm primary" onClick={onOpenWorkspace}>
+            Open Trading Workspace
+          </button>
+        )}
         <button className="btn sm" onClick={onLogout}>
           Sign out
         </button>

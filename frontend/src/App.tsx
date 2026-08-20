@@ -26,6 +26,8 @@ type CurrentUser = {
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(auth.token));
   const [page, setPage] = useState<PublicPage>("home");
+  /** Which signed-in surface is showing. Null means "this role's default". */
+  const [view, setView] = useState<"overview" | "trade" | null>(null);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [checkingUser, setCheckingUser] = useState(Boolean(auth.token));
 
@@ -65,30 +67,39 @@ export default function App() {
     return <div style={{ padding: "40px" }}>Loading account...</div>;
   }
 
+  // Both roles can reach both surfaces; only the landing page differs.
+  // A customer's product IS the trading workspace, so that is where they
+  // start. An admin starts on Overview because the summaries and control
+  // centre are what they signed in for — but the workspace was previously
+  // unreachable for them entirely, which is the gap this closes.
+  const signOut = () => {
+    auth.clear();
+    setAuthed(false);
+    setUser(null);
+    setPage("home");
+    setView(null);
+  };
+
   if (authed && user?.role === "ADMIN") {
-    return (
-      <Dashboard
-        onLogout={() => {
-          auth.clear();
-          setAuthed(false);
-          setUser(null);
-          setPage("home");
-        }}
+    const showing = view ?? "overview";
+    return showing === "trade" ? (
+      <TradingWorkspace
+        onLogout={signOut}
+        onOpenOverview={() => setView("overview")}
       />
+    ) : (
+      <Dashboard onLogout={signOut} onOpenWorkspace={() => setView("trade")} />
     );
   }
 
-  // An entitled customer lands in the trading workspace. Without
-  // entitlement they see the subscription gate, exactly as before.
   if (authed && user?.role === "CUSTOMER" && user.demo_access) {
-    return (
+    const showing = view ?? "trade";
+    return showing === "overview" ? (
+      <Dashboard onLogout={signOut} onOpenWorkspace={() => setView("trade")} />
+    ) : (
       <TradingWorkspace
-        onLogout={() => {
-          auth.clear();
-          setAuthed(false);
-          setUser(null);
-          setPage("home");
-        }}
+        onLogout={signOut}
+        onOpenOverview={() => setView("overview")}
       />
     );
   }

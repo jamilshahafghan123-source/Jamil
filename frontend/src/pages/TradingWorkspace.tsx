@@ -17,6 +17,7 @@ import { TechnicalSummary } from "../components/TechnicalSummary";
 import { BrokerCentre } from "../components/BrokerCentre";
 import { LanguagePicker } from "../components/LanguagePicker";
 import { ObjectTree } from "../components/ObjectTree";
+import { StrategyBuilder } from "../components/StrategyBuilder";
 import { useLanguage } from "../i18n/useLanguage";
 import {
   AIOverlayLayer,
@@ -70,7 +71,14 @@ function pnlClass(value: number | null | undefined): string {
   return value > 0 ? "up" : "down";
 }
 
-export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
+export function TradingWorkspace({
+  onLogout,
+  onOpenOverview,
+}: {
+  onLogout: () => void;
+  /** Present whenever this account also has the Overview dashboard. */
+  onOpenOverview?: () => void;
+}) {
   const { t } = useLanguage();
   const [symbol, setSymbol] = useState("XAUUSD");
   const [timeframe, setTimeframe] = useState<Timeframe>("M15");
@@ -109,6 +117,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sideTab, setSideTab] = useState<"ai" | "technicals" | "objects">("ai");
   const [brokersOpen, setBrokersOpen] = useState(false);
+  const [strategiesOpen, setStrategiesOpen] = useState(false);
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
@@ -533,6 +542,14 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         <button
           type="button"
           className="btn sm"
+          onClick={() => setStrategiesOpen(true)}
+          title="Build and manage strategies"
+        >
+          Strategies
+        </button>
+        <button
+          type="button"
+          className="btn sm"
           onClick={() => setBrokersOpen(true)}
           title="Broker connection centre"
         >
@@ -541,6 +558,12 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           {t("workspace.resetDemo")}
         </button>
+        {onOpenOverview && (
+          <button type="button" className="btn sm" onClick={onOpenOverview}
+                  title="Account overview and summaries">
+            Overview
+          </button>
+        )}
         <LanguagePicker />
         <button type="button" className="btn sm" onClick={onLogout}>
           {t("nav.signOut")}
@@ -1057,6 +1080,13 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           setSymbol(picked);
           setSearchOpen(false);
         }}
+      />
+
+      <StrategyBuilder
+        open={strategiesOpen}
+        onClose={() => setStrategiesOpen(false)}
+        symbol={symbol}
+        timeframe={timeframe}
       />
 
       <BrokerCentre open={brokersOpen} onClose={() => setBrokersOpen(false)} />

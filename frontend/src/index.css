@@ -3240,3 +3240,123 @@ th.right {
 }
 .jg-tree-action:hover { opacity: 1; }
 .jg-tree-action.danger:hover { color: #f4564a; }
+
+/* -------------------------------------------- strategy builder (§32-37)
+   Every control is a closed list. There is deliberately no free-text rule
+   input anywhere in this panel: "no arbitrary code" is a property of the
+   interface, not only of the parser behind it. */
+.jg-strategy-modal {
+  width: min(1080px, 96vw);
+  max-height: min(88vh, 860px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.jg-strategy-title { margin: 0; font-size: 14px; }
+.jg-strategy-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+  flex: 1;
+}
+.jg-strategy-form { padding: 14px 16px; overflow-y: auto; }
+.jg-strategy-saved {
+  padding: 14px 16px;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--line, #23262d);
+  background: rgba(0, 0, 0, 0.14);
+}
+.jg-strategy-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.jg-strategy-form label,
+.jg-strategy-full {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-strategy-form input,
+.jg-strategy-form select,
+.jg-strategy-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #23262d);
+  background: var(--bg-2, #0f1115);
+  color: inherit;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.jg-strategy-scope {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted, #8b93a1);
+  margin: 0 0 10px;
+}
+.jg-strategy-rule {
+  border: 1px solid var(--line, #23262d);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--bg-2, #0f1115);
+}
+.jg-rule-group {
+  border-inline-start: 2px solid rgba(217, 164, 65, 0.35);
+  padding-inline-start: 8px;
+  margin-bottom: 6px;
+}
+.jg-rule-group-head { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.jg-rule-group-head select { width: auto; margin: 0; }
+.jg-rule-children { margin-top: 6px; }
+.jg-rule-condition {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 5px 0;
+}
+.jg-rule-condition select,
+.jg-rule-condition input { width: auto; margin: 0; }
+.jg-rule-period { width: 74px; }
+.jg-rule-value { width: 96px; }
+.jg-rule-tf { width: 76px; }
+.jg-strategy-count {
+  font-size: 10px;
+  color: var(--muted, #8b93a1);
+  margin: 6px 0 10px;
+}
+.jg-strategy-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+.jg-strategy-card {
+  border: 1px solid var(--line, #23262d);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+/* A rule that no longer parses must not look runnable. */
+.jg-strategy-card.invalid { border-color: rgba(244, 86, 74, 0.5); opacity: 0.8; }
+.jg-strategy-card-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+}
+.jg-strategy-meta { font-size: 10px; color: var(--muted, #8b93a1); margin: 0 0 6px; }
+.jg-strategy-desc {
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  color: var(--muted, #8b93a1);
+}
+.jg-strategy-card-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.btn.danger { color: #f4564a; border-color: rgba(244, 86, 74, 0.4); }
+
+@media (max-width: 860px) {
+  .jg-strategy-body { grid-template-columns: minmax(0, 1fr); }
+  .jg-strategy-saved { border-inline-start: 0; border-top: 1px solid var(--line, #23262d); }
+}
