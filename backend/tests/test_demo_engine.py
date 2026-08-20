@@ -434,3 +434,48 @@ async def test_unauthenticated_cannot_touch_the_demo_account(env):
                          ("GET", "/api/demo/trades")):
         r = await env["client"].request(method, path, json={})
         assert r.status_code == 401
+
+
+# ------------------------------------------------- AI Assist separation
+
+
+def test_ai_assist_panel_has_no_execution_call():
+    """Section 41: AI Assist fills a ticket, it never places an order.
+
+    Asserted against the component's AST: the panel may call analysis, and
+    must not call any order path. If a future edit wires one in, this fails.
+    """
+    import re
+    from pathlib import Path
+
+    source = Path("../frontend/src/components/AIPanel.tsx").read_text(encoding="utf-8")
+    # Every api.* call the component makes.
+    calls = set(re.findall(r"\bapi\.(\w+)", source))
+    assert calls <= {"runAnalysis"}, f"AI panel calls {calls - {'runAnalysis'}}"
+    for forbidden in ("demoOpen", "execute", "demoClose", "placeOrder"):
+        assert forbidden not in source
+
+
+def test_ai_setup_is_recorded_as_assisted_not_manual():
+    """An assisted trade must be distinguishable in history."""
+    from pathlib import Path
+
+    source = Path("../frontend/src/pages/TradingWorkspace.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert 'aiSetup ? "AI_ASSIST" : "MANUAL"' in source
+
+
+def test_clearing_ai_overlays_touches_only_ai_state():
+    """Section 22: clearing AI overlays must not delete customer content."""
+    from pathlib import Path
+
+    source = Path("../frontend/src/pages/TradingWorkspace.tsx").read_text(
+        encoding="utf-8"
+    )
+    clear_block = source.split("// Clears AI overlays only")[1][:300]
+    assert "setAnalysis(null)" in clear_block
+    assert "setAiSetup(null)" in clear_block
+    # Nothing belonging to the user is reset here.
+    for user_state in ("setStopLoss", "setTakeProfit", "setVolume", "setBars"):
+        assert user_state not in clear_block

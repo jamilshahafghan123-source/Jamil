@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { Brand } from "../components/Brand";
 import { SupportChat } from "../components/SupportChat";
-import { TradingChart, type TradeMarker } from "../components/TradingChart";
+import { TradingChart, type PriceLine, type TradeMarker } from "../components/TradingChart";
+import { AIPanel, type AISetup } from "../components/AIPanel";
 import type {
+  Analysis,
   Bar,
   DemoAccountResponse,
   DemoTrade,
   InstrumentInfo,
+  RiskSettings,
   Timeframe,
 } from "../lib/types";
 
@@ -67,6 +70,10 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [risk, setRisk] = useState<RiskSettings | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [showAI, setShowAI] = useState(true);
+  const [aiSetup, setAiSetup] = useState<AISetup | null>(null);
 
   // One in-flight bars request at a time; a timeframe click mid-flight must
   // not let a stale response land after the new one.
@@ -118,6 +125,10 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     void loadAccount();
     void loadTrades();
     void api.demoInstruments().then((r) => setInstruments(r.by_asset_class));
+    // Risk settings supply the minimums the AI panel shows each gate
+    // against. A failure leaves them null and the panel falls back to
+    // documented defaults rather than inventing a threshold.
+    void api.getRisk().then(setRisk).catch(() => setRisk(null));
   }, [loadAccount, loadTrades]);
 
   // One poll for account state. Bars refresh on the same beat rather than
@@ -158,6 +169,34 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
     return { entry, risk, reward, rr };
   }, [price, instrument, parsedVolume, parsedSl, parsedTp, side]);
 
+  /**
+   * AI overlays. Deliberately a separate array from anything a user
+   * creates, and cleared by its own control — turning AI analysis off must
+   * never remove a customer's own work.
+   */
+  const aiLines: PriceLine[] = useMemo(() => {
+    if (!showAI || !analysis) return [];
+    const out: PriceLine[] = [];
+    for (const level of analysis.levels?.support ?? []) {
+      out.push({ price: level.price, label: "AI support", colour: "#3fb950",
+                 dashed: true });
+    }
+    for (const level of analysis.levels?.resistance ?? []) {
+      out.push({ price: level.price, label: "AI resistance", colour: "#f4564a",
+                 dashed: true });
+    }
+    if (aiSetup?.entry != null) {
+      out.push({ price: aiSetup.entry, label: "AI entry", colour: "#d9a441" });
+    }
+    if (aiSetup?.stopLoss != null) {
+      out.push({ price: aiSetup.stopLoss, label: "AI SL", colour: "#f4564a" });
+    }
+    if (aiSetup?.takeProfit != null) {
+      out.push({ price: aiSetup.takeProfit, label: "AI TP", colour: "#3fb950" });
+    }
+    return out.slice(0, 12);
+  }, [showAI, analysis, aiSetup]);
+
   const markers: TradeMarker[] = useMemo(() => {
     const open = (account?.positions ?? []).map((p) => ({
       time: p.opened_at ?? new Date().toISOString(),
@@ -185,7 +224,11 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         volume: parsedVolume,
         stop_loss: parsedSl,
         take_profit: parsedTp,
-        source: "MANUAL",
+        // Recorded as AI_ASSIST when the values came from a setup, so the
+        // history can tell an assisted trade from a hand-typed one.
+        source: aiSetup ? "AI_ASSIST" : "MANUAL",
+        signal_confidence: aiSetup?.confidence ?? null,
+        signal_rr: aiSetup?.rr ?? null,
       });
       setNotice(`${side} ${parsedVolume} ${symbol} opened on virtual money.`);
       await loadAccount();
@@ -263,6 +306,24 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
         </div>
 
         <div className="jg-spacer" />
+        <button
+          type="button"
+          className={showAI ? "btn sm active" : "btn sm"}
+          onClick={() => setShowAI((v) => !v)}
+        >
+          AI overlays {showAI ? "on" : "off"}
+        </button>
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => {
+            // Clears AI overlays only. User content is untouched.
+            setAnalysis(null);
+            setAiSetup(null);
+          }}
+        >
+          Clear AI
+        </button>
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           Reset demo
         </button>
@@ -314,7 +375,12 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
               No candles returned for {timeframe}.
             </div>
           ) : (
-            <TradingChart bars={bars} markers={markers} height={460} />
+            <TradingChart
+              bars={bars}
+              markers={markers}
+              priceLines={aiLines}
+              height={460}
+            />
           )}
         </section>
 
@@ -397,6 +463,24 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
           >
             {canOpen ? `Place ${side} order` : "Trading unavailable"}
           </button>
+
+          <AIPanel
+            risk={risk}
+            onAnalysis={setAnalysis}
+            onUseSetup={(setup) => {
+              // AI ASSIST: this fills the form. It does not submit it, and
+              // there is no path from here to an order.
+              setAiSetup(setup);
+              setSide(setup.side);
+              if (setup.stopLoss != null) setStopLoss(String(setup.stopLoss));
+              if (setup.takeProfit != null) setTakeProfit(String(setup.takeProfit));
+              setTicketError(null);
+              setNotice(
+                `AI setup loaded into the ticket (${setup.side}, confidence ` +
+                  `${setup.confidence}%). Review and confirm to place it.`,
+              );
+            }}
+          />
         </aside>
       </div>
 
