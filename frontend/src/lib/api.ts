@@ -57,12 +57,27 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = auth.token;
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...init, headers });
+  } catch (err) {
+    // An aborted request is the caller's own doing — a timeframe switch
+    // cancelling the previous bars fetch — so it must keep its identity
+    // rather than be reported to the user as a connection failure.
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    // Everything else here is a transport failure: the browser never got a
+    // response, so there is no backend detail to show. "Failed to fetch" is
+    // what fetch() says; it tells the customer nothing actionable.
+    throw new ApiError(
+      0,
+      "Cannot reach the J Gold AI server. Check your connection and try again.",
+    );
+  }
 
   if (res.status === 401) {
     auth.clear();
     window.dispatchEvent(new Event("auth:expired"));
-    throw new ApiError(401, "Session expired â€” please sign in again");
+    throw new ApiError(401, "Session expired — please sign in again");
   }
 
   if (!res.ok) {
@@ -320,7 +335,7 @@ export const api = {
   /**
    * OHLC candles for the chart, straight from MT5 via the bridge.
    *
-   * Auth is the shared Bearer flow in `request()` â€” no token or credential
+   * Auth is the shared Bearer flow in `request()` — no token or credential
    * is ever referenced here.
    *
    * NOTE ON `symbol`: the current backend derives the symbol from its own
@@ -396,18 +411,18 @@ export function liveSocketUrl(): string | null {
 
 export const fmt = {
   price: (n: number | null | undefined, digits = 2) =>
-    n == null ? "â€”" : n.toFixed(digits),
+    n == null ? "—" : n.toFixed(digits),
   money: (n: number | null | undefined, currency = "") =>
     n == null
-      ? "â€”"
+      ? "—"
       : `${n < 0 ? "-" : ""}${currency}${Math.abs(n).toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })}`,
   signed: (n: number | null | undefined) =>
-    n == null ? "â€”" : `${n > 0 ? "+" : ""}${n.toFixed(2)}`,
+    n == null ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(2)}`,
   time: (iso: string | null | undefined) =>
-    iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "â€”",
+    iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "—",
   datetime: (iso: string | null | undefined) =>
-    iso ? new Date(iso).toLocaleString([], { hour12: false }) : "â€”",
+    iso ? new Date(iso).toLocaleString([], { hour12: false }) : "—",
 };
