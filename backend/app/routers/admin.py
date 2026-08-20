@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..deps import require_admin
+from ..deps import rate_limiter, require_admin
 from ..models import (
     AuditLog,
     OrderLog,
@@ -45,7 +45,15 @@ from ..services import recovery as recovery_svc
 from ..services import safe_mode as safe_mode_svc
 from ..services.mt5_client import mt5
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+#: Recovery actions restart real services; admin actions change entitlement
+#: and halt trading. Rate-limited so a stuck client cannot hammer either.
+admin_rate_limit = rate_limiter(60)
+
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["admin"],
+    dependencies=[Depends(admin_rate_limit)],
+)
 
 
 class RecoveryActionIn(BaseModel):

@@ -427,3 +427,68 @@ class Notification(Base):
     )
     #: Channels that actually delivered it. Empty until a deliverer exists.
     delivered_channels: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class BackupStatus(str, enum.Enum):
+    CREATED = "CREATED"
+    FAILED = "FAILED"
+    VERIFIED = "VERIFIED"
+    RESTORE_TESTED = "RESTORE_TESTED"
+
+
+class BackupRecord(Base):
+    """Registry of database backups.
+
+    THE REGISTRY IS THE POINT. Restore accepts a row id from this table and
+    nothing else — never a filesystem path from a request, a customer, or a
+    model. `filename` is generated server-side from a timestamp and is
+    validated against a strict pattern before it is ever used, so a path
+    cannot be smuggled in through a name.
+
+    No connection string, password or host is recorded here: the metadata
+    describes the artefact, not how to reach the database.
+    """
+
+    __tablename__ = "backup_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Basename only. No directory component is ever stored.
+    filename: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    status: Mapped[BackupStatus] = mapped_column(
+        Enum(BackupStatus), default=BackupStatus.CREATED, index=True
+    )
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Operator-facing. Never a command line, never a credential.
+    detail: Mapped[str] = mapped_column(Text, default="")
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
+class PasswordResetToken(Base):
+    """A single-use, expiring password reset grant.
+
+    Only the SHA-256 of the token is stored. A database disclosure therefore
+    leaks nothing usable: the plaintext exists only in the response to the
+    request that created it, and is never logged.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    #: SHA-256 hex of the token. Never the token itself.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

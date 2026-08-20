@@ -13,6 +13,7 @@ idempotent and states its effect on existing data.
 |---|---|---|
 | `001_subscriptions.sql` | `subscriptions` table | No |
 | `002_incidents_notifications.sql` | `incidents`, `notifications` tables | No |
+| `003_backup_and_reset.sql` | `backup_records`, `password_reset_tokens` tables | No |
 
 If a change ever needs to *alter* or backfill an existing table, that is
 the point to add Alembic — `create_all` cannot do it, and a hand-run SQL

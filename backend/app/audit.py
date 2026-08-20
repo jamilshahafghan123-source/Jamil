@@ -34,6 +34,15 @@ LOGIN_SUCCESS = "auth.login_success"
 LOGIN_FAILED = "auth.login_failed"
 DAILY_LIMIT_HIT = "risk.daily_limit_hit"
 SAFE_MODE_PAUSED = "safe_mode.bot_paused"
+ADMIN_LOGIN = "auth.admin_login"
+ADMIN_LOGIN_FAILED = "auth.admin_login_failed"
+PASSWORD_RESET_REQUESTED = "auth.password_reset_requested"
+PASSWORD_RESET_USED = "auth.password_reset_used"
+BACKUP_CREATED = "backup.created"
+BACKUP_FAILED = "backup.failed"
+BACKUP_VERIFIED = "backup.verified"
+RESTORE_REQUESTED = "backup.restore_requested"
+RESTORE_RESULT = "backup.restore_result"
 
 
 async def record(

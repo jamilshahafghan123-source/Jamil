@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from .middleware import SecurityHeadersMiddleware
 from sqlalchemy import func, select
 
 from .config import settings
@@ -18,6 +20,7 @@ from .routers import (
     analysis,
     auth,
     risk,
+    security,
     support,
     trading,
     ws,
@@ -92,6 +95,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -101,6 +105,8 @@ app.add_middleware(
 )
 
 app.include_router(admin.router)
+app.include_router(security.router)
+app.include_router(security.admin_router)
 app.include_router(support.router)
 app.include_router(support.admin_router)
 app.include_router(auth.router)

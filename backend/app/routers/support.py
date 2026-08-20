@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..db import get_db
-from ..deps import current_user, require_admin
+from ..deps import current_user, rate_limiter, require_admin
 from ..models import (
     AuditLog,
     Notification,
@@ -43,7 +43,15 @@ from ..services.workers import (
     project_trading_status,
 )
 
-router = APIRouter(prefix="/api/support", tags=["support"])
+#: Support chat is cheap to send and does real work per call. Its own
+#: bucket, so a chatty customer cannot exhaust the global allowance.
+support_rate_limit = rate_limiter(20)
+
+router = APIRouter(
+    prefix="/api/support",
+    tags=["support"],
+    dependencies=[Depends(support_rate_limit)],
+)
 
 
 class AskIn(BaseModel):
