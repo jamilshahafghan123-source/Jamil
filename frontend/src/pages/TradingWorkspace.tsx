@@ -16,6 +16,7 @@ import { SymbolSearch } from "../components/SymbolSearch";
 import { TechnicalSummary } from "../components/TechnicalSummary";
 import { BrokerCentre } from "../components/BrokerCentre";
 import { LanguagePicker } from "../components/LanguagePicker";
+import { ObjectTree } from "../components/ObjectTree";
 import { useLanguage } from "../i18n/useLanguage";
 import {
   AIOverlayLayer,
@@ -106,7 +107,7 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
   const [showSessions, setShowSessions] = useState(false);
   const [showPrevLevels, setShowPrevLevels] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [sideTab, setSideTab] = useState<"ai" | "technicals">("ai");
+  const [sideTab, setSideTab] = useState<"ai" | "technicals" | "objects">("ai");
   const [brokersOpen, setBrokersOpen] = useState(false);
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
@@ -790,7 +791,28 @@ export function TradingWorkspace({ onLogout }: { onLogout: () => void }) {
             >
               Technicals
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "objects"}
+              className={sideTab === "objects" ? "jg-chip active" : "jg-chip"}
+              onClick={() => setSideTab("objects")}
+            >
+              Objects ({draw.drawings.length})
+            </button>
           </div>
+
+          {sideTab === "objects" && (
+            <ObjectTree
+              drawings={draw.drawings}
+              symbol={symbol}
+              timeframe={timeframe}
+              selectedId={draw.selectedId}
+              onSelect={draw.setSelectedId}
+              onToggle={draw.toggle}
+              onDelete={draw.remove}
+            />
+          )}
 
           {sideTab === "technicals" && (
             <TechnicalSummary bars={bars} timeframe={timeframe} />

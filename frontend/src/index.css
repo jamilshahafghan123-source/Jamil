@@ -3191,3 +3191,52 @@ th.right {
   direction: ltr;
   unicode-bidi: isolate;
 }
+
+/* ------------------------------------------------------ object tree (§17) */
+.jg-tree { padding: 4px 0; }
+.jg-tree-scope {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-tree-list { list-style: none; margin: 0; padding: 0; }
+.jg-tree-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+.jg-tree-row.selected { background: rgba(217, 164, 65, 0.12); }
+.jg-tree-name {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  font-size: 12px;
+}
+.jg-tree-label { display: block; }
+.jg-tree-text {
+  display: block;
+  font-size: 10px;
+  color: var(--muted, #8b93a1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jg-tree-action {
+  width: 28px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.jg-tree-action:hover { opacity: 1; }
+.jg-tree-action.danger:hover { color: #f4564a; }
