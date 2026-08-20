@@ -239,6 +239,12 @@ def _assemble(setup: dict, snapshot: dict, narrative: dict | None) -> dict:
             "resistance_levels": t.get("resistance_levels", []),
             "liquidity": t.get("liquidity", []),
             "volume": t.get("volume", {}),
+            # Structural zones for THIS timeframe. The chart draws the row
+            # matching what the customer is looking at: an M1 imbalance is
+            # a hairline on an H4 chart and means nothing there.
+            "fvg": t.get("fvg", []),
+            "order_blocks": t.get("order_blocks", []),
+            "swings": t.get("swings", []),
             "notes": notes.get(t["timeframe"], ""),
         }
         for t in tfs
@@ -267,6 +273,16 @@ def _assemble(setup: dict, snapshot: dict, narrative: dict | None) -> dict:
         },
         "hierarchy": h,
         "structure": setup_tf.get("structure_detail", {}),
+        # Structural zones and markers the chart draws as AI overlays. Every
+        # entry here was measured from real bars by services/indicators.py;
+        # an empty list means the engine found nothing, never that it gave up
+        # and something plausible should be drawn instead.
+        "zones": {
+            "fvg": setup_tf.get("fvg", []),
+            "order_blocks": setup_tf.get("order_blocks", []),
+            "liquidity": setup_tf.get("liquidity", []),
+        },
+        "swings": setup_tf.get("swings", []),
         "levels": {
             "support": setup_tf.get("support_levels", []),
             "resistance": setup_tf.get("resistance_levels", []),

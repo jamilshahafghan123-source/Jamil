@@ -266,6 +266,187 @@ def detect_structure(
     return out
 
 
+def fair_value_gaps(
+    bars: list[dict],
+    atr_value: float,
+    limit: int = 4,
+) -> list[dict]:
+    """Unmitigated three-bar imbalances (fair value gaps).
+
+    A bullish FVG is a gap between bar i-2's high and bar i's low: price moved
+    up so fast that the middle bar never traded that band. Bearish is the
+    mirror. Only gaps that are still unmitigated are returned — once price has
+    traded back into the band the imbalance is gone and drawing it would be a
+    claim about the past, not the present.
+
+    Gaps narrower than 0.15 ATR are noise at this timeframe and are dropped,
+    so a quiet chart reports nothing rather than a wall of thin boxes.
+    """
+    if len(bars) < 3:
+        return []
+    floor = max(atr_value * 0.15, 0.01)
+    out: list[dict] = []
+
+    for i in range(2, len(bars)):
+        first, gap_bar = bars[i - 2], bars[i]
+        if gap_bar["low"] > first["high"]:
+            zone_low, zone_high, side = first["high"], gap_bar["low"], "bullish"
+        elif gap_bar["high"] < first["low"]:
+            zone_low, zone_high, side = gap_bar["high"], first["low"], "bearish"
+        else:
+            continue
+        if zone_high - zone_low < floor:
+            continue
+        # Mitigated as soon as a later bar trades back inside the band.
+        if any(
+            later["low"] < zone_high and later["high"] > zone_low
+            for later in bars[i + 1 :]
+        ):
+            continue
+        out.append(
+            {
+                "kind": "fvg",
+                "side": side,
+                "low": round(float(zone_low), 2),
+                "high": round(float(zone_high), 2),
+                "from_time": bars[i - 1]["time"],
+                "label": "Bullish FVG" if side == "bullish" else "Bearish FVG",
+            }
+        )
+
+    # Consecutive triplets often both qualify over one impulse, producing
+    # nested boxes for a single imbalance. Keep the narrowest of each
+    # overlapping same-side cluster: it is the tightest band the bars
+    # actually support, and the wider one always includes price the middle
+    # bar traded through.
+    kept: list[dict] = []
+    for gap in sorted(out, key=lambda z: z["high"] - z["low"]):
+        if any(
+            k["side"] == gap["side"]
+            and k["low"] < gap["high"]
+            and k["high"] > gap["low"]
+            for k in kept
+        ):
+            continue
+        kept.append(gap)
+
+    last = float(bars[-1]["close"])
+    kept.sort(key=lambda z: abs((z["low"] + z["high"]) / 2 - last))
+    return kept[:limit]
+
+
+def order_blocks(
+    bars: list[dict],
+    hi_idx: list[int],
+    lo_idx: list[int],
+    atr_value: float,
+    limit: int = 2,
+) -> list[dict]:
+    """Supply and demand zones, defined mechanically.
+
+    A demand zone is the last down-close candle before an impulsive rally that
+    closed above the prior swing high; supply is its mirror. That definition is
+    checkable against the bars, which is the only kind we are willing to draw.
+
+    Zones price has already traded back through are dropped, for the same
+    reason mitigated gaps are.
+    """
+    if len(bars) < 5 or atr_value <= 0:
+        return []
+
+    highs = [float(b["high"]) for b in bars]
+    lows = [float(b["low"]) for b in bars]
+    out: list[dict] = []
+
+    def prior_swing(idxs: list[int], before: int, series: list[float]) -> float | None:
+        candidates = [i for i in idxs if i < before]
+        return series[candidates[-1]] if candidates else None
+
+    for i in range(2, len(bars)):
+        bar = bars[i]
+        impulse = float(bar["close"]) - float(bar["open"])
+        if abs(impulse) < atr_value * 0.8:
+            continue
+
+        if impulse > 0:
+            swing = prior_swing(hi_idx, i, highs)
+            if swing is None or float(bar["close"]) <= swing:
+                continue
+            origin = next(
+                (j for j in range(i - 1, max(i - 6, -1), -1)
+                 if bars[j]["close"] < bars[j]["open"]),
+                None,
+            )
+            side, label = "demand", "Demand"
+        else:
+            swing = prior_swing(lo_idx, i, lows)
+            if swing is None or float(bar["close"]) >= swing:
+                continue
+            origin = next(
+                (j for j in range(i - 1, max(i - 6, -1), -1)
+                 if bars[j]["close"] > bars[j]["open"]),
+                None,
+            )
+            side, label = "supply", "Supply"
+
+        if origin is None:
+            continue
+        zone_low = float(bars[origin]["low"])
+        zone_high = float(bars[origin]["high"])
+        if any(
+            later["low"] < zone_high and later["high"] > zone_low
+            for later in bars[i + 1 :]
+        ):
+            continue
+        out.append(
+            {
+                "kind": "order_block",
+                "side": side,
+                "low": round(zone_low, 2),
+                "high": round(zone_high, 2),
+                "from_time": bars[origin]["time"],
+                "label": label,
+            }
+        )
+
+    last = float(bars[-1]["close"])
+    out.sort(key=lambda z: abs((z["low"] + z["high"]) / 2 - last))
+    return out[:limit]
+
+
+def swing_markers(
+    bars: list[dict],
+    hi_idx: list[int],
+    lo_idx: list[int],
+    limit: int = 6,
+) -> list[dict]:
+    """The most recent confirmed swing highs and lows, with their bar times.
+
+    These are the same swings the structure reading and the stop placement are
+    derived from, so plotting them shows the customer what the engine actually
+    measured rather than a second, decorative set of points.
+    """
+    out: list[dict] = []
+    for idx in hi_idx[-limit:]:
+        out.append(
+            {
+                "side": "high",
+                "price": round(float(bars[idx]["high"]), 2),
+                "time": bars[idx]["time"],
+            }
+        )
+    for idx in lo_idx[-limit:]:
+        out.append(
+            {
+                "side": "low",
+                "price": round(float(bars[idx]["low"]), 2),
+                "time": bars[idx]["time"],
+            }
+        )
+    out.sort(key=lambda m: m["time"])
+    return out
+
+
 def ranked_levels(
     prices: list[float],
     tolerance: float,
@@ -381,6 +562,11 @@ class TimeframeAnalysis:
     volume: dict = field(default_factory=dict)
     breakout_confirmed: bool = False
     breakout_level: float = 0.0
+    # Structural zones and markers, each carrying the bar time they start at
+    # so the chart can draw them where they actually happened.
+    fvg: list[dict] = field(default_factory=list)
+    order_blocks: list[dict] = field(default_factory=list)
+    swings: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -530,6 +716,10 @@ def analyze_timeframe(timeframe: str, bars: list[dict]) -> TimeframeAnalysis | N
         [float(h[i]) for i in hi_idx], tol_lv, "resistance", last
     )
 
+    gaps = fair_value_gaps(bars, a)
+    blocks = order_blocks(bars, hi_idx, lo_idx, a)
+    swings = swing_markers(bars, hi_idx, lo_idx)
+
     return TimeframeAnalysis(
         timeframe=timeframe,
         bars_analyzed=len(bars),
@@ -563,6 +753,9 @@ def analyze_timeframe(timeframe: str, bars: list[dict]) -> TimeframeAnalysis | N
         volume=vol,
         breakout_confirmed=breakout_confirmed,
         breakout_level=breakout_level,
+        fvg=gaps,
+        order_blocks=blocks,
+        swings=swings,
     )
 
 
