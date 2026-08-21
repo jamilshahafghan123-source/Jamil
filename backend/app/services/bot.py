@@ -32,6 +32,7 @@ from ..models import (
     User,
 )
 from . import (
+    alerts,
     demo_execution,
     executor,
     instruments,
@@ -121,6 +122,18 @@ async def run_analysis(
     )
 
     if persist:
+        # The signal this one replaces, read BEFORE the new row lands, so
+        # an alert can tell a changed read from a repeated one.
+        previous = (
+            await db.execute(
+                select(Signal)
+                .where(Signal.user_id == user_id)
+                .order_by(Signal.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        previous_action = previous.action.value if previous else None
+
         db.add(signal)
         await db.commit()
         await db.refresh(signal)
@@ -135,6 +148,29 @@ async def run_analysis(
             },
             user_id,
         )
+
+        # Alerts, on the one path that produces signals — so a customer
+        # gets the same notification whether the bot found the setup or
+        # they pressed Run analysis. A failure here must never cost the
+        # signal that was just recorded.
+        try:
+            market = alerts.MarketState(
+                symbol=signal.symbol,
+                price=snapshot.get("ask") or snapshot.get("bid"),
+                ai_signal=action.value,
+                previous_ai_signal=previous_action,
+                confidence=signal.confidence,
+                risk_reward=signal.risk_reward,
+            )
+            fired = await alerts.dispatch(db, user_id=user_id, market=market)
+            for row, message in fired:
+                log.info(
+                    "alert fired user=%s alert=%s kind=%s: %s",
+                    user_id, row.id, row.kind.value, message,
+                )
+        except Exception:  # noqa: BLE001 - a notification never blocks trading
+            log.warning("alert dispatch failed for user %s", user_id,
+                        exc_info=True)
 
     await audit.record(
         db,

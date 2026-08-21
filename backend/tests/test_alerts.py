@@ -159,7 +159,7 @@ async def env():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as client:
         yield {"client": client, "tokens": tokens, "bob_alert": bobs.id,
-               "Session": Session}
+               "Session": Session, "alice_id": alice.id, "bob_id": bob.id}
     app.dependency_overrides.clear()
     await engine_db.dispose()
 
@@ -231,3 +231,172 @@ async def test_re_enabling_a_one_shot_alert_arms_it_again(env):
     r = await env["client"].post(f"/api/alerts/{alert_id}/enabled?enabled=true",
                                  headers=_h(env["tokens"]["alice"]))
     assert r.json()["trigger_count"] == 0
+
+
+# ------------------------------------------- dispatch: the missing caller
+
+
+@pytest.mark.asyncio
+async def test_dispatch_fires_a_matching_alert_and_records_it(env):
+    """Every piece of this existed and nothing called evaluate().
+
+    trigger_count stayed at zero forever, so an alert was a promise
+    rather than a feature. This asserts the whole write: the count, the
+    message, the timestamp and the unacknowledged state the panel reads.
+    """
+    from app.services import alerts as engine
+
+    async with env["Session"]() as db:
+        row = Alert(user_id=env["alice_id"], kind=AlertKind.AI_SIGNAL_CHANGE,
+                    symbol="XAUUSD", enabled=True, repeatable=True)
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+
+        fired = await engine.dispatch(
+            db, user_id=env["alice_id"],
+            market=engine.MarketState(symbol="XAUUSD", ai_signal="BUY",
+                                      previous_ai_signal="NO_TRADE"),
+        )
+        assert len(fired) == 1
+        await db.refresh(row)
+        assert row.trigger_count == 1
+        assert "NO_TRADE to BUY" in row.last_message
+        assert row.acknowledged is False
+        assert row.triggered_at is not None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_notifies_on_every_actionable_transition(env):
+    """The four transitions that matter, and the three that must stay quiet."""
+    from app.services import alerts as engine
+
+    async def transition(previous: str, current: str) -> int:
+        async with env["Session"]() as db:
+            row = Alert(user_id=env["alice_id"], kind=AlertKind.AI_SIGNAL_CHANGE,
+                        symbol="XAUUSD", enabled=True, repeatable=True)
+            db.add(row)
+            await db.commit()
+            fired = await engine.dispatch(
+                db, user_id=env["alice_id"],
+                market=engine.MarketState(symbol="XAUUSD", ai_signal=current,
+                                          previous_ai_signal=previous),
+            )
+            await db.delete(row)
+            await db.commit()
+            return len(fired)
+
+    for previous, current in (("NO_TRADE", "BUY"), ("NO_TRADE", "SELL"),
+                              ("BUY", "SELL"), ("SELL", "BUY")):
+        assert await transition(previous, current) == 1, (previous, current)
+
+    for repeated in ("BUY", "SELL", "NO_TRADE"):
+        assert await transition(repeated, repeated) == 0, repeated
+
+
+@pytest.mark.asyncio
+async def test_dispatch_never_reaches_another_customers_alerts(env):
+    """Scoped by query, not by a check afterwards."""
+    from app.services import alerts as engine
+
+    async with env["Session"]() as db:
+        mine = Alert(user_id=env["alice_id"], kind=AlertKind.AI_SIGNAL_CHANGE,
+                     symbol="XAUUSD", enabled=True, repeatable=True)
+        theirs = Alert(user_id=env["bob_id"],
+                       kind=AlertKind.AI_SIGNAL_CHANGE, symbol="XAUUSD",
+                       enabled=True, repeatable=True)
+        db.add_all([mine, theirs])
+        await db.commit()
+        await db.refresh(theirs)
+
+        fired = await engine.dispatch(
+            db, user_id=env["alice_id"],
+            market=engine.MarketState(symbol="XAUUSD", ai_signal="BUY",
+                                      previous_ai_signal="NO_TRADE"),
+        )
+        assert len(fired) == 1
+        await db.refresh(theirs)
+        assert theirs.trigger_count == 0
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_alert_is_not_dispatched(env):
+    from app.services import alerts as engine
+
+    async with env["Session"]() as db:
+        row = Alert(user_id=env["alice_id"], kind=AlertKind.AI_SIGNAL_CHANGE,
+                    symbol="XAUUSD", enabled=False, repeatable=True)
+        db.add(row)
+        await db.commit()
+        fired = await engine.dispatch(
+            db, user_id=env["alice_id"],
+            market=engine.MarketState(symbol="XAUUSD", ai_signal="BUY",
+                                      previous_ai_signal="NO_TRADE"),
+        )
+    assert fired == []
+
+
+def test_the_analysis_path_dispatches_alerts():
+    """The caller has to be on the path that produces signals.
+
+    Wired into run_analysis rather than the bot loop, so a customer gets
+    the same notification whether the bot found the setup or they pressed
+    Run analysis — one path, not two implementations.
+    """
+    import inspect
+
+    from app.services import bot
+
+    source = inspect.getsource(bot.run_analysis)
+    assert "alerts.dispatch" in source
+    assert "previous_ai_signal" in source
+    # A notification must never cost the signal that was just recorded.
+    tail = source.split("alerts.dispatch")[1]
+    assert "except Exception" in tail
+
+
+@pytest.mark.asyncio
+async def test_the_whole_runtime_path_through_the_api(env):
+    """Create through HTTP, fire, and read back what the panel reads.
+
+    The unit tests above prove the rule and the write. This proves the
+    fields the Alerts panel actually renders come back changed over the
+    real endpoints.
+    """
+    from app.services import alerts as service
+
+    client, h = env["client"], _h(env["tokens"]["alice"])
+
+    created = await client.post("/api/alerts", headers=h, json={
+        "kind": "AI_SIGNAL_CHANGE", "symbol": "XAUUSD", "repeatable": True,
+    })
+    assert created.status_code == 201, created.text
+    alert_id = created.json()["id"]
+
+    before = (await client.get("/api/alerts", headers=h)).json()
+    row = next(a for a in before["alerts"] if a["id"] == alert_id)
+    assert row["enabled"] is True
+    assert row["trigger_count"] == 0
+    assert row["last_message"] == ""
+    assert before["unacknowledged"] == 0
+
+    async with env["Session"]() as db:
+        fired = await service.dispatch(
+            db, user_id=env["alice_id"],
+            market=service.MarketState(symbol="XAUUSD", ai_signal="BUY",
+                                       previous_ai_signal="NO_TRADE"),
+        )
+    assert len(fired) == 1
+
+    after = (await client.get("/api/alerts", headers=h)).json()
+    row = next(a for a in after["alerts"] if a["id"] == alert_id)
+    assert row["trigger_count"] == 1
+    assert "NO_TRADE to BUY" in row["last_message"]
+    assert row["acknowledged"] is False
+    assert row["triggered_at"] is not None
+    assert after["unacknowledged"] == 1, "the panel's badge count"
+
+    acked = await client.post(f"/api/alerts/{alert_id}/acknowledge", headers=h)
+    assert acked.status_code == 200
+    settled = (await client.get("/api/alerts", headers=h)).json()
+    assert settled["unacknowledged"] == 0

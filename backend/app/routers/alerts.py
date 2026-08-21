@@ -204,11 +204,3 @@ async def delete_alert(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert not found")
     return {"deleted": alert_id}
 
-
-async def fire(db: AsyncSession, row: Alert, message: str) -> None:
-    """Mark an alert as fired. The only place that writes trigger state."""
-    row.triggered_at = datetime.now(timezone.utc)
-    row.trigger_count += 1
-    row.last_message = message
-    row.acknowledged = False
-    await db.commit()

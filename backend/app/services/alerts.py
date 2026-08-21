@@ -16,6 +16,10 @@ thing is testable without a database or a feed.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Alert, AlertKind
 
@@ -180,3 +184,57 @@ KIND_LABEL: dict[AlertKind, str] = {
     AlertKind.STOP_LOSS_HIT: "A stop loss is hit",
     AlertKind.TAKE_PROFIT_HIT: "A take profit is hit",
 }
+
+
+# --------------------------------------------------------------- firing
+#
+# Evaluation above is pure. These two do the I/O, and they are the ONLY
+# things that write trigger state — so "did it match?" and "what happened
+# next?" stay separate questions with separate tests.
+
+
+async def fire(db: AsyncSession, row: Alert, message: str) -> None:
+    """Mark an alert as fired. The only place that writes trigger state."""
+    row.triggered_at = datetime.now(timezone.utc)
+    row.trigger_count += 1
+    row.last_message = message
+    row.acknowledged = False
+    await db.commit()
+
+
+async def dispatch(
+    db: AsyncSession, *, user_id: int, market: MarketState
+) -> list[tuple[Alert, str]]:
+    """Evaluate this customer's alerts against the market and fire matches.
+
+    THE MISSING CALLER. Every piece of this system existed — the kinds,
+    the rules, the table, the endpoints, the panel — and nothing ever
+    called `evaluate`, so no alert could fire and `trigger_count` stayed
+    at zero forever. An alert nobody evaluates is a promise, not a
+    feature.
+
+    Returns what fired, so the caller can log or report it. Scoped to one
+    customer by query, so a dispatch for one account can never touch
+    another's alerts.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(Alert).where(
+                    Alert.user_id == user_id,
+                    Alert.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    fired: list[tuple[Alert, str]] = []
+    for row in rows:
+        message = evaluate(row, market)
+        if message is None:
+            continue
+        await fire(db, row, message)
+        fired.append((row, message))
+    return fired
