@@ -4609,3 +4609,33 @@ th.right {
   font-size: 10px;
   font-weight: 600;
 }
+
+/* Account panel sections. <details> rather than a JS accordion: the
+   collapse is native, keyboard-reachable and works before hydration. */
+.jg-acc-section {
+  margin-bottom: 8px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 7px;
+  background: rgba(11, 13, 16, 0.5);
+}
+.jg-acc-section > summary {
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+  list-style: none;
+}
+.jg-acc-section > summary::-webkit-details-marker { display: none; }
+.jg-acc-section > summary::before {
+  content: "\25B8";
+  display: inline-block;
+  width: 11px;
+  transition: transform 0.12s ease;
+}
+.jg-acc-section[open] > summary::before { transform: rotate(90deg); }
+.jg-acc-section > summary:hover { color: var(--text, #e6e8ec); }
+.jg-acc-section > *:not(summary) { padding: 0 8px 8px; }
+.jg-acc-basis { letter-spacing: 0.06em; opacity: 0.75; }

@@ -24,6 +24,7 @@ import { OpportunityLog } from "../components/OpportunityLog";
 import { AlertsPanel } from "../components/AlertsPanel";
 import { IndicatorPane } from "../components/IndicatorPane";
 import { BotPanel } from "../components/BotPanel";
+import { AccountPanel } from "../components/AccountPanel";
 import { QuickTrade } from "../components/QuickTrade";
 import { DataWindow } from "../components/DataWindow";
 import { ReplayBar } from "../components/ReplayBar";
@@ -1369,29 +1370,20 @@ export function TradingWorkspace({
               />
             )}
             {panel === "account" && (
-              <div className="jg-account-panel">
-                <p className="jg-ws-virtual">VIRTUAL MONEY — J Gold AI demo</p>
-                <dl className="jg-account-list">
-                  <div><dt>{t("account.balance")}</dt>
-                       <dd>{money(acct?.balance, acct?.currency)}</dd></div>
-                  <div><dt>{t("account.equity")}</dt>
-                       <dd>{money(acct?.equity, acct?.currency)}</dd></div>
-                  <div><dt>{t("account.freeMargin")}</dt>
-                       <dd>{money(acct?.free_margin, acct?.currency)}</dd></div>
-                  <div><dt>{t("account.floatingPnl")}</dt>
-                       <dd className={pnlClass(acct?.floating_pnl)}>
-                         {money(acct?.floating_pnl, acct?.currency)}</dd></div>
-                  <div><dt>{t("account.realisedPnl")}</dt>
-                       <dd className={pnlClass(acct?.realized_pnl)}>
-                         {money(acct?.realized_pnl, acct?.currency)}</dd></div>
-                  <div><dt>Open positions</dt>
-                       <dd>{acct?.open_positions ?? 0}</dd></div>
-                </dl>
-                <button type="button" className="btn sm"
-                        onClick={() => setResetting(true)}>
-                  {t("workspace.resetDemo")}
-                </button>
-              </div>
+              <AccountPanel
+                account={acct}
+                currency={acct?.currency ?? "USD"}
+                trades={trades}
+                onReset={() => setResetting(true)}
+                resetLabel={t("workspace.resetDemo")}
+                labels={{
+                  balance: t("account.balance"),
+                  equity: t("account.equity"),
+                  freeMargin: t("account.freeMargin"),
+                  floatingPnl: t("account.floatingPnl"),
+                  realisedPnl: t("account.realisedPnl"),
+                }}
+              />
             )}
             {panel === "ai" && (
               <p className="jg-cc-note">
