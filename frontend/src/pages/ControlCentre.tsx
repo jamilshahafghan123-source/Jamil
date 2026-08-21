@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { OpportunityLog } from "../components/OpportunityLog";
 import { api } from "../lib/api";
 import { Brand } from "../components/Brand";
 import { NotificationBell } from "../components/NotificationBell";
@@ -213,6 +214,17 @@ export function ControlCentre({ onBack }: { onBack: () => void }) {
           the maintenance state off the page rather than infer it from the
           absence of a banner. The state comes from the backend on every
           poll, so the UI cannot claim a window ended before it has. */}
+      <section className="jg-cc-section">
+        <h2>Opportunity telemetry</h2>
+        <p className="jg-cc-note">
+          Every setup the engine detected across the platform, including the
+          ones it declined and the ones the risk manager refused. The three
+          outcomes are separate columns on purpose: a quiet day has a
+          different cause depending on which stage stopped it.
+        </p>
+        <OpportunityLog admin />
+      </section>
+
       <section className="jg-cc-section">
         <div
           className={security?.maintenance.active ? "jg-maint active" : "jg-maint"}

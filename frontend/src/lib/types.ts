@@ -774,3 +774,53 @@ export interface SavedStrategy {
   created_at: string | null;
   updated_at: string | null;
 }
+
+/** Opportunity telemetry (section 49). Three outcomes, kept apart. */
+export interface OpportunityRow {
+  id: number;
+  detected_at: string | null;
+  symbol: string;
+  session: string;
+  setup_class: string;
+  grade: string;
+  score: number;
+  direction: string;
+  confidence: number;
+  expected_rr: number;
+  required_confidence: number;
+  required_rr: number;
+  ai_decision: string;
+  risk_decision: string | null;
+  risk_reason: string | null;
+  execution_result: string | null;
+  rejection_reason: string | null;
+  outcome_pnl: number | null;
+  score_breakdown: Record<string, number>;
+}
+
+export interface OpportunitySummary {
+  detected: number;
+  ai_proposed: number;
+  ai_no_trade: number;
+  risk_rejected: number;
+  executed: number;
+  settled: number;
+  wins: number;
+  losses: number;
+  by_setup_class: Record<string, number>;
+  by_session: Record<string, number>;
+  by_grade: Record<string, number>;
+  top_rejection_reasons: { reason: string; count: number }[];
+  /** Null until enough trades have settled for a rate to mean anything. */
+  win_rate: number | null;
+  net_pnl: number | null;
+  rate_note?: string;
+}
+
+export interface OpportunityFeed {
+  days: number;
+  summary: OpportunitySummary;
+  opportunities: OpportunityRow[];
+  note?: string;
+  customers?: number;
+}

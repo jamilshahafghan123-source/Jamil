@@ -18,6 +18,7 @@ import { BrokerCentre } from "../components/BrokerCentre";
 import { LanguagePicker } from "../components/LanguagePicker";
 import { ObjectTree } from "../components/ObjectTree";
 import { StrategyBuilder } from "../components/StrategyBuilder";
+import { OpportunityLog } from "../components/OpportunityLog";
 import { useLanguage } from "../i18n/useLanguage";
 import {
   AIOverlayLayer,
@@ -92,7 +93,7 @@ export function TradingWorkspace({
   const [account, setAccount] = useState<DemoAccountResponse | null>(null);
   const [trades, setTrades] = useState<DemoTrade[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [tab, setTab] = useState<"positions" | "history" | "ai">("positions");
+  const [tab, setTab] = useState<"positions" | "history" | "ai" | "opportunities">("positions");
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [volume, setVolume] = useState("0.10");
@@ -892,9 +893,21 @@ export function TradingWorkspace({
           >
             AI history ({signals.length})
           </button>
+          <button
+            type="button"
+            className={tab === "opportunities" ? "jg-chip active" : "jg-chip"}
+            onClick={() => setTab("opportunities")}
+            title="Every setup detected, including the ones declined"
+          >
+            Opportunities
+          </button>
         </div>
 
-        <div className="jg-ws-table-wrap">
+        {/* The opportunity log brings its own scrolling and controls, so it
+            sits outside the shared table wrapper. */}
+        {tab === "opportunities" && <OpportunityLog />}
+
+        <div className="jg-ws-table-wrap" hidden={tab === "opportunities"}>
           {tab === "ai" ? (
             <table className="jg-ws-table">
               <thead>

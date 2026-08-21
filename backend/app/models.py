@@ -692,3 +692,51 @@ class Strategy(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class OpportunityLog(Base):
+    """One detected opportunity and what became of it (section 49).
+
+    The three outcomes are stored SEPARATELY and deliberately: what the AI
+    decided, what the risk manager ruled, and what execution actually did.
+    Collapsing them into one status makes a quiet day impossible to
+    explain — "no trades" could equally mean the engine found nothing, the
+    risk manager refused everything, or execution kept failing, and those
+    call for completely different responses.
+
+    Append-only in practice: rows are written as an opportunity progresses
+    and never deleted, so the day can be reconstructed exactly.
+    """
+
+    __tablename__ = "opportunity_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=False
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    session: Mapped[str] = mapped_column(String(16), default="")
+    setup_class: Mapped[str] = mapped_column(String(16), default="STANDARD")
+    grade: Mapped[str] = mapped_column(String(16), default="POOR")
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    direction: Mapped[str] = mapped_column(String(8), default="")
+
+    confidence: Mapped[int] = mapped_column(Integer, default=0)
+    expected_rr: Mapped[float] = mapped_column(Float, default=0.0)
+    #: What this setup class actually had to clear, so a refusal can be
+    #: read back without recomputing the thresholds that applied.
+    required_confidence: Mapped[int] = mapped_column(Integer, default=0)
+    required_rr: Mapped[float] = mapped_column(Float, default=0.0)
+
+    ai_decision: Mapped[str] = mapped_column(String(16), default="NO_TRADE")
+    risk_decision: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    risk_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    execution_result: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Realised P/L once the resulting position closed, if one was opened.
+    outcome_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The full factor breakdown, so a score can always be interrogated.
+    score_breakdown: Mapped[dict] = mapped_column(JSON, default=dict)

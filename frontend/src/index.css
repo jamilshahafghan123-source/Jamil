@@ -3360,3 +3360,78 @@ th.right {
   .jg-strategy-body { grid-template-columns: minmax(0, 1fr); }
   .jg-strategy-saved { border-inline-start: 0; border-top: 1px solid var(--line, #23262d); }
 }
+
+/* ------------------------------------------ opportunity telemetry (§49)
+   The funnel reads left to right: detected, declined, proposed, rejected,
+   executed. Where the day went is meant to be visible at a glance. */
+.jg-opp { padding: 8px 0; }
+.jg-opp-controls { display: flex; gap: 5px; align-items: center; margin-bottom: 10px; }
+.jg-opp-funnel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.jg-opp-stat {
+  border: 1px solid var(--line, #23262d);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: var(--bg-2, #0f1115);
+}
+.jg-opp-stat-label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+  margin-bottom: 3px;
+}
+.jg-opp-stat-value { font-size: 16px; font-variant-numeric: tabular-nums; }
+.jg-opp-stat-value.up { color: #3fb950; }
+.jg-opp-stat-value.down { color: #f4564a; }
+.jg-opp-note {
+  font-size: 11px;
+  color: var(--muted, #8b93a1);
+  line-height: 1.6;
+  margin: 6px 0;
+}
+.jg-opp-reasons ul { list-style: none; margin: 0 0 10px; padding: 0; font-size: 11px; }
+.jg-opp-reasons li { padding: 3px 0; color: var(--muted, #8b93a1); }
+.jg-opp-count { color: var(--gold, #d9a441); font-variant-numeric: tabular-nums; }
+.jg-opp-table { font-size: 11px; }
+.jg-opp-table th { white-space: nowrap; }
+.jg-opp-row { cursor: pointer; }
+.jg-opp-row:hover { background: rgba(255, 255, 255, 0.04); }
+/* A left edge colour-codes which stage stopped each opportunity. */
+.jg-opp-row.filled { box-shadow: inset 3px 0 0 #3fb950; }
+.jg-opp-row.rejected { box-shadow: inset 3px 0 0 #d9a441; }
+.jg-opp-row.no-trade { box-shadow: inset 3px 0 0 #8b93a1; }
+.jg-opp-row.failed { box-shadow: inset 3px 0 0 #f4564a; }
+/* The threshold columns sit visually behind the value they gate. */
+.jg-opp-required { color: var(--muted, #8b93a1); }
+.jg-opp-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 8px;
+  background: var(--bg-2, #0f1115);
+}
+.jg-opp-reason { font-size: 11px; color: #d9a441; margin: 4px 0 8px; }
+.jg-opp-factors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 2px 14px;
+  font-size: 11px;
+}
+.jg-opp-factors li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--muted, #8b93a1);
+}
+.jg-opp-factor-value { font-variant-numeric: tabular-nums; color: inherit; }

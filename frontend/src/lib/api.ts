@@ -17,6 +17,7 @@
   OrderLog,
   RecoveryStatus,
   BrokerDirectory,
+  OpportunityFeed,
   RiskSettings,
   SavedStrategy,
   StrategyRule,
@@ -235,6 +236,13 @@ export const api = {
 
   /** Broker directory. Statuses only — no credentials, no ratings. */
   brokers: () => request<BrokerDirectory>("/api/demo/brokers"),
+
+  /** Opportunity telemetry: everything detected, including declined. */
+  opportunities: (days = 1) =>
+    request<OpportunityFeed>(`/api/opportunities?days=${days}`),
+
+  adminOpportunities: (days = 1) =>
+    request<OpportunityFeed>(`/api/admin/opportunities?days=${days}`),
 
   // ---- Strategies. Rules are data; the backend refuses anything else. --
 
