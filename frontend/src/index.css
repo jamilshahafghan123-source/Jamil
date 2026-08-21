@@ -4357,6 +4357,14 @@ th.right {
   color: inherit;
   font-size: 10px;
 }
+/* The start scrubber. Narrow on purpose: it lives in the toolbar beside
+   the transport controls, and the toolbar's whole job is to leave the
+   chart the screen. */
+.jg-replay-seek {
+  width: 96px;
+  accent-color: var(--gold, #d9a441);
+  cursor: pointer;
+}
 .jg-replay-count {
   font-size: 9px;
   color: var(--muted, #8b93a1);

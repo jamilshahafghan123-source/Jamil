@@ -578,6 +578,17 @@ export function TradingWorkspace({
   }, [account, trades]);
 
   async function submitOrder() {
+    // A REFUSAL, not a disabled button. Replay shows a price the market
+    // left behind hours ago; opening against it would fill at a rate
+    // nobody can trade. Disabling the controls is the courtesy — this is
+    // the guarantee, and it holds however the function is reached.
+    if (replayOn) {
+      setTicketError(
+        "Replay is showing past candles. Exit replay before trading.",
+      );
+      setConfirming(false);
+      return;
+    }
     setPendingOrder(true);
     setTicketError(null);
     try {
@@ -830,6 +841,13 @@ export function TradingWorkspace({
           onJump={(delta) =>
             setReplayIndex((current) =>
               Math.max(0, Math.min(bars.length - 1, current + delta)))}
+          onSeek={(index) => {
+            // Choosing a start is a deliberate act, so it stops playback
+            // rather than dropping the customer into a moving chart at a
+            // point they were still picking.
+            setReplayPlaying(false);
+            setReplayIndex(Math.max(0, Math.min(bars.length - 1, index)));
+          }}
           onSpeed={setReplaySpeed}
           onReset={() => { setReplayIndex(0); setReplayPlaying(false); }}
           onExit={() => { setReplayOn(false); setReplayPlaying(false); }}
@@ -1194,10 +1212,13 @@ export function TradingWorkspace({
             type="button"
             className="jg-btn primary"
             style={{ width: "100%" }}
-            disabled={!canOpen || pendingOrder || !Number.isFinite(parsedVolume)}
+            disabled={!canOpen || pendingOrder || replayOn
+                      || !Number.isFinite(parsedVolume)}
             onClick={() => setConfirming(true)}
           >
-            {canOpen ? `Place ${side} order` : "Trading unavailable"}
+            {replayOn
+              ? "Trading paused during replay"
+              : canOpen ? `Place ${side} order` : "Trading unavailable"}
           </button>
 
           <div className="jg-side-tabs" role="tablist" aria-label="Sidebar">

@@ -19,7 +19,7 @@ export const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8] as const;
 
 export function ReplayBar({
   active, index, total, playing, speed,
-  onToggleActive, onPlayPause, onStep, onJump, onSpeed, onReset, onExit,
+  onToggleActive, onPlayPause, onStep, onJump, onSeek, onSpeed, onReset, onExit,
 }: {
   active: boolean;
   index: number;
@@ -30,6 +30,8 @@ export function ReplayBar({
   onPlayPause: () => void;
   onStep: () => void;
   onJump: (bars: number) => void;
+  /** Absolute position, for choosing where the replay starts. */
+  onSeek: (index: number) => void;
   onSpeed: (speed: number) => void;
   onReset: () => void;
   onExit: () => void;
@@ -58,22 +60,33 @@ export function ReplayBar({
   }
 
   const atEnd = index >= total - 1;
+  const atStart = index <= 0;
 
   return (
     <div className="jg-replay" role="group" aria-label="Chart replay">
-      <span className="jg-replay-badge">REPLAY</span>
+      <span className="jg-replay-badge">REPLAY MODE</span>
 
       <button type="button" className="jg-replay-btn" onClick={onPlayPause}
               title={playing ? "Pause" : "Play"}
               aria-label={playing ? "Pause" : "Play"}>
         {playing ? "❙❙" : "▶"}
       </button>
+      {/* Stepping BACK is safe here in a way it would not be in a live
+          feed: replay only reveals bars that already exist, so the
+          previous candle is simply the one before it in the loaded
+          history. Nothing is recomputed and nothing is invented. */}
+      <button type="button" className="jg-replay-btn"
+              onClick={() => onJump(-1)} disabled={atStart}
+              title="Previous candle" aria-label="Previous candle">
+        ❙◀
+      </button>
       <button type="button" className="jg-replay-btn" onClick={onStep}
               disabled={atEnd} title="Next candle" aria-label="Next candle">
         ▶❙
       </button>
       <button type="button" className="jg-replay-btn" onClick={() => onJump(-10)}
-              title="Back 10 candles" aria-label="Back 10 candles">
+              disabled={atStart} title="Back 10 candles"
+              aria-label="Back 10 candles">
         ⏪
       </button>
       <button type="button" className="jg-replay-btn" onClick={() => onJump(10)}
@@ -81,6 +94,20 @@ export function ReplayBar({
               aria-label="Forward 10 candles">
         ⏩
       </button>
+
+      {/* Choosing where to start. A replay that always begins at the same
+          place is only useful once; the point is to sit down in front of
+          a particular move and walk forward from there. */}
+      <input
+        type="range"
+        className="jg-replay-seek"
+        min={0}
+        max={Math.max(0, total - 1)}
+        value={index}
+        aria-label="Replay start"
+        title="Choose which candle to start from"
+        onChange={(e) => onSeek(Number(e.target.value))}
+      />
 
       <select value={speed} onChange={(e) => onSpeed(Number(e.target.value))}
               aria-label="Replay speed" className="jg-replay-speed">
