@@ -886,7 +886,24 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     )
 
 
+#: When the loop last completed an iteration, and when it was started.
+#:
+#: WITHOUT THESE THE BOT CANNOT BE TOLD APART FROM A DEAD ONE. Every
+#: state `bot_status` derives came from settings and observations, none
+#: of which is "did the analysis loop actually run?" — so a loop that
+#: crashed at startup, was never started, or wedged reported exactly the
+#: same "Waiting for a setup" as a healthy idle bot.
+_last_cycle_at: datetime | None = None
+_started_at: datetime | None = None
+
+
+def heartbeat() -> tuple[datetime | None, datetime | None]:
+    """(started_at, last_cycle_at). Either may be None if it never happened."""
+    return _started_at, _last_cycle_at
+
+
 async def _loop() -> None:
+    global _last_cycle_at
     log.info("bot loop started (interval=%ss)", settings.BOT_INTERVAL_SECONDS)
     while True:
         try:
@@ -903,12 +920,18 @@ async def _loop() -> None:
             raise
         except Exception:
             log.exception("bot loop iteration failed")
+        # Recorded even when the iteration raised: the loop is alive and
+        # cycling, which is a different fact from the cycle succeeding,
+        # and conflating them would hide a healthy loop failing every
+        # time behind a "stalled" that sends someone to restart it.
+        _last_cycle_at = datetime.now(timezone.utc)
         await asyncio.sleep(settings.BOT_INTERVAL_SECONDS)
 
 
 def start() -> None:
-    global _task
+    global _task, _started_at
     if _task is None or _task.done():
+        _started_at = datetime.now(timezone.utc)
         _task = asyncio.create_task(_loop())
 
 

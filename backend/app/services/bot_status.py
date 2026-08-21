@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 
 class BotState(str, enum.Enum):
@@ -24,6 +25,7 @@ class BotState(str, enum.Enum):
     WAITING_FOR_SETUP = "WAITING_FOR_SETUP"
     POSITION_OPEN = "POSITION_OPEN"
     PAUSED = "PAUSED"
+    STALLED = "STALLED"
     BLOCKED_BY_RISK = "BLOCKED_BY_RISK"
     SAFE_MODE = "SAFE_MODE"
     MAINTENANCE_MODE = "MAINTENANCE_MODE"
@@ -43,6 +45,7 @@ STATE_LABEL: dict[BotState, str] = {
     BotState.WAITING_FOR_SETUP: "Waiting for a setup",
     BotState.POSITION_OPEN: "Position open",
     BotState.PAUSED: "Paused",
+    BotState.STALLED: "Not analysing",
     BotState.BLOCKED_BY_RISK: "Blocked by risk manager",
     BotState.SAFE_MODE: "Safe Mode active",
     BotState.MAINTENANCE_MODE: "Maintenance Mode active",
@@ -54,7 +57,7 @@ STATE_LABEL: dict[BotState, str] = {
 
 #: States in which the bot is not going to open anything.
 BLOCKED_STATES = frozenset({
-    BotState.OFF, BotState.PAUSED, BotState.BLOCKED_BY_RISK,
+    BotState.OFF, BotState.PAUSED, BotState.STALLED, BotState.BLOCKED_BY_RISK,
     BotState.SAFE_MODE, BotState.MAINTENANCE_MODE, BotState.EMERGENCY_STOP,
     BotState.BROKER_DISCONNECTED, BotState.MARKET_DATA_ERROR,
     BotState.CONNECTION_ERROR,
@@ -94,6 +97,10 @@ def derive(
     venue_requires_broker: bool = False,
     open_positions: int = 0,
     risk_blocked_reason: str | None = None,
+    started_at: datetime | None = None,
+    last_cycle_at: datetime | None = None,
+    interval_seconds: int = 60,
+    now: datetime | None = None,
 ) -> BotStatus:
     """Work out what the bot is actually doing.
 
@@ -123,6 +130,42 @@ def derive(
 
     if not bot_enabled:
         return BotStatus(BotState.OFF, "The bot is switched off.")
+
+    # IS THE LOOP ACTUALLY RUNNING? Every check below reports on what the
+    # bot would decide. None of them notices that nothing is deciding at
+    # all, so a loop that crashed at startup used to report "waiting for
+    # a setup" indefinitely — the most reassuring possible description of
+    # a bot that is not running.
+    #
+    # The grace window is three intervals, so one slow cycle is not an
+    # alarm and a genuinely stopped loop is caught within a few minutes.
+    moment = now or datetime.now(timezone.utc)
+    grace = timedelta(seconds=max(interval_seconds * 3, 180))
+
+    if started_at is None:
+        return BotStatus(
+            BotState.STALLED,
+            "The analysis loop is not running. The bot is switched on but "
+            "nothing is scanning the market.",
+        )
+    if last_cycle_at is None:
+        if moment - started_at > grace:
+            return BotStatus(
+                BotState.STALLED,
+                "The analysis loop started but has not completed a cycle. "
+                "Something is blocking it.",
+            )
+        return BotStatus(
+            BotState.STARTING,
+            "The analysis loop is starting; no cycle has completed yet.",
+        )
+    if moment - last_cycle_at > grace:
+        late = int((moment - last_cycle_at).total_seconds())
+        return BotStatus(
+            BotState.STALLED,
+            f"The last analysis cycle finished {late} seconds ago, well "
+            f"past the {interval_seconds}-second schedule.",
+        )
 
     # A pause is the customer's own hold and outranks every operational
     # state below it: there is no point reporting "waiting for a setup"

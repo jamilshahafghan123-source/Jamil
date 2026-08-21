@@ -26,6 +26,7 @@ const STATE_TONE: Record<string, string> = {
   WAITING_FOR_SETUP: "active",
   POSITION_OPEN: "active",
   PAUSED: "warn",
+  STALLED: "danger",
   BLOCKED_BY_RISK: "warn",
   SAFE_MODE: "warn",
   MAINTENANCE_MODE: "warn",
@@ -46,11 +47,13 @@ const STATE_TONE: Record<string, string> = {
 const STATE_MEANING: [string, string][] = [
   ["OFF", "Switched off. Nothing is analysed and nothing is opened."],
   ["READY", "On, but trading mode is manual — you place the trades."],
-  ["STARTING", "Coming up. Reported by the engine during start-up only."],
+  ["STARTING", "The loop is up but has not finished its first scan yet."],
   ["RUNNING", "Never reported on its own — see WAITING FOR SETUP."],
   ["WAITING FOR SETUP", "Analysing. No setup currently qualifies."],
   ["POSITION OPEN", "Managing one or more open positions."],
   ["PAUSED", "Holding. Open positions still managed, nothing new opened."],
+  ["NOT ANALYSING", "The analysis loop is not running. Nothing is scanning "
+    + "the market — this is a fault, not a quiet period."],
   ["BLOCKED BY RISK", "The risk manager refused the current setup."],
   ["SAFE MODE", "Platform safe mode is blocking new positions."],
   ["MAINTENANCE MODE", "A maintenance window is blocking new positions."],

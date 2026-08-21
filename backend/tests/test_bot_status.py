@@ -1,10 +1,25 @@
 """Bot state derivation (section 17)."""
 
+from datetime import datetime, timedelta, timezone
+
 from app.services.bot_status import BotState, derive
+
+
+#: A loop that is up and cycling on time. Every case below is about what
+#: the bot DECIDES, which presupposes something is deciding — so the
+#: healthy heartbeat is the default and the stalled cases state it.
+NOW = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
+HEALTHY = dict(
+    started_at=NOW - timedelta(hours=2),
+    last_cycle_at=NOW - timedelta(seconds=20),
+    interval_seconds=60,
+    now=NOW,
+)
 
 
 def base(**over):
     body = dict(bot_enabled=True, emergency_stop=False, trading_mode="DEMO")
+    body.update(HEALTHY)
     body.update(over)
     return derive(**body)
 
@@ -119,3 +134,51 @@ def test_pause_does_not_talk_over_the_platform_blocks():
 
 def test_a_paused_bot_is_reported_as_blocked():
     assert base(paused=True).as_dict()["blocked"] is True
+
+
+# ------------------------------------- is anything actually running? (§17)
+
+
+def test_a_loop_that_never_started_is_not_waiting_for_a_setup():
+    """The failure this exists to catch.
+
+    Every other check reports on what the bot WOULD decide. None of them
+    notices that nothing is deciding, so a loop that crashed at startup
+    reported "waiting for a setup" — the most reassuring possible
+    description of a bot that is not running.
+    """
+    status = base(started_at=None, last_cycle_at=None)
+    assert status.state is BotState.STALLED
+    assert "not running" in status.detail
+
+
+def test_a_loop_that_started_but_never_cycled_is_starting_then_stalled():
+    starting = base(started_at=NOW - timedelta(seconds=30), last_cycle_at=None)
+    assert starting.state is BotState.STARTING
+
+    stalled = base(started_at=NOW - timedelta(hours=1), last_cycle_at=None)
+    assert stalled.state is BotState.STALLED
+    assert "not completed a cycle" in stalled.detail
+
+
+def test_a_late_cycle_is_stalled_and_says_how_late():
+    status = base(last_cycle_at=NOW - timedelta(minutes=30))
+    assert status.state is BotState.STALLED
+    assert "1800 seconds ago" in status.detail
+
+
+def test_one_slow_cycle_is_not_an_alarm():
+    """Three intervals of grace, so a single slow scan is not a fault."""
+    assert base(last_cycle_at=NOW - timedelta(seconds=100)).state \
+        is BotState.WAITING_FOR_SETUP
+
+
+def test_a_stalled_loop_outranks_a_pause_but_not_the_switch():
+    """A pause the bot is not around to honour is a fault, not a pause."""
+    assert base(paused=True, started_at=None).state is BotState.STALLED
+    # But a bot that is switched off is off, not stalled.
+    assert base(bot_enabled=False, started_at=None).state is BotState.OFF
+
+
+def test_stalled_is_reported_as_blocked():
+    assert base(started_at=None).as_dict()["blocked"] is True

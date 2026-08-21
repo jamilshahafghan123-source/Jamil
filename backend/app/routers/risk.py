@@ -23,6 +23,7 @@ from ..schemas import (
     RiskSettingsIn,
     RiskSettingsOut,
 )
+from ..services import bot as bot_service
 from ..services import bot_status as bot_status_service
 from ..services import executor, maintenance, safe_mode
 from ..services.mt5_client import mt5
@@ -247,6 +248,7 @@ async def bot_status(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No risk settings")
 
     maintenance_state = maintenance.current()
+    started_at, last_cycle_at = bot_service.heartbeat()
 
     # The internal demo venue has no broker to lose, so a bridge outage is
     # only the bot's problem when execution actually goes to one.
@@ -292,9 +294,17 @@ async def bot_status(
         broker_connected=broker_connected,
         venue_requires_broker=uses_broker,
         open_positions=int(open_positions),
+        # Whether the analysis loop is actually running. Without this the
+        # endpoint cannot tell a healthy idle bot from a dead one.
+        started_at=started_at,
+        last_cycle_at=last_cycle_at,
+        interval_seconds=settings.BOT_INTERVAL_SECONDS,
     )
     payload = result.as_dict()
     payload["bot_enabled"] = row.bot_enabled
+    payload["last_cycle_at"] = (
+        last_cycle_at.isoformat() if last_cycle_at else None
+    )
     payload["bot_paused"] = row.bot_paused
     payload["trading_mode"] = row.trading_mode.value
     payload["venue"] = venue_name
