@@ -92,6 +92,58 @@ export const TEMPLATES: { id: string; name: string; kinds: IndicatorKind[] }[] =
   { id: "volume", name: "Volume", kinds: ["VWAP", "VOLUME", "OBV", "MFI"] },
 ];
 
+const FAVOURITES_KEY = "jgold.indicator.favourites";
+const RECENT_KEY = "jgold.indicator.recent";
+const MAX_RECENT = 8;
+
+/**
+ * Favourites and recents are a per-browser convenience rather than
+ * account data, so they live in local storage — and every read is
+ * wrapped, because a private window or blocked storage must start empty
+ * instead of throwing on the way to rendering a panel.
+ */
+function readList(key: string): IndicatorKind[] {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (k): k is IndicatorKind => typeof k === "string" && k in INDICATOR_LABEL,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeList(key: string, values: IndicatorKind[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(values));
+  } catch {
+    /* the list still applies for this session */
+  }
+}
+
+/** Library tabs (section 36). */
+type LibraryTab =
+  | "favorites" | "recent" | "builtin" | "jgold" | "strategies"
+  | "mine" | "featured";
+
+const TAB_LABEL: Record<LibraryTab, string> = {
+  favorites: "Favorites", recent: "Recent", builtin: "Built-in",
+  jgold: "J Gold AI", strategies: "Strategies", mine: "My indicators",
+  featured: "Featured",
+};
+
+/**
+ * A small, deliberately conservative pick — the indicators that are most
+ * broadly useful on XAUUSD intraday, not a ranking anyone has measured.
+ * Calling it "featured" and implying performance would be a claim this
+ * platform has no evidence for.
+ */
+const FEATURED: IndicatorKind[] = [
+  "EMA", "RSI", "MACD", "ATR", "BOLLINGER", "SUPERTREND", "VOLUME",
+];
+
 let nextId = 1;
 
 export function useIndicators(bars: Bar[]) {
@@ -420,19 +472,52 @@ export function IndicatorPanel({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<LibraryTab>("builtin");
+  const [favourites, setFavourites] = useState<IndicatorKind[]>(
+    () => readList(FAVOURITES_KEY),
+  );
+  const [recent, setRecent] = useState<IndicatorKind[]>(
+    () => readList(RECENT_KEY),
+  );
+
+  function toggleFavourite(kind: IndicatorKind) {
+    setFavourites((current) => {
+      const next = current.includes(kind)
+        ? current.filter((k) => k !== kind)
+        : [...current, kind];
+      writeList(FAVOURITES_KEY, next);
+      return next;
+    });
+  }
+
+  function remember(kind: IndicatorKind) {
+    setRecent((current) => {
+      // Most recent first, no duplicates, bounded — an unbounded list
+      // stops being "recent" and becomes a second full library.
+      const next = [kind, ...current.filter((k) => k !== kind)]
+        .slice(0, MAX_RECENT);
+      writeList(RECENT_KEY, next);
+      return next;
+    });
+  }
 
   /** Library grouped by family, filtered by the search box (section 17). */
   const visibleGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const grouped = new Map<string, IndicatorKind[]>();
-    for (const kind of AVAILABLE) {
+    const source =
+      tab === "favorites" ? favourites
+      : tab === "recent" ? recent
+      : tab === "featured" ? FEATURED
+      : AVAILABLE;
+    for (const kind of source) {
       const label = INDICATOR_LABEL[kind];
       if (q && !`${kind} ${label}`.toLowerCase().includes(q)) continue;
       const group = INDICATOR_GROUP[kind];
       grouped.set(group, [...(grouped.get(group) ?? []), kind]);
     }
     return [...grouped.entries()];
-  }, [query]);
+  }, [query, tab, favourites, recent]);
 
   function applyTemplate(kinds: IndicatorKind[]) {
     setConfigs(
@@ -488,6 +573,23 @@ export function IndicatorPanel({
             ))}
           </div>
 
+          <div className="jg-ind-tabs" role="tablist" aria-label="Indicator library">
+            {(["favorites", "recent", "builtin", "jgold", "strategies",
+               "mine", "featured"] as LibraryTab[]).map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={tab === id ? "jg-ind-tab active" : "jg-ind-tab"}
+                onClick={() => setTab(id)}
+              >
+                {TAB_LABEL[id]}
+                {id === "favorites" && favourites.length > 0 && ` (${favourites.length})`}
+              </button>
+            ))}
+          </div>
+
           <input
             className="jg-ind-search"
             placeholder="Search indicators"
@@ -497,18 +599,69 @@ export function IndicatorPanel({
           />
 
           <div className="jg-ind-add">
-            {visibleGroups.length === 0 && (
+            {/* Tabs backed by a system that does not exist yet say so,
+                rather than showing an empty list that looks like a bug or,
+                worse, a marketplace that was never built. */}
+            {tab === "jgold" && (
+              <p className="jg-cc-note">
+                The J Gold AI studies — market structure, liquidity, FVG,
+                supply/demand and support/resistance — are drawn by the AI
+                overlay rather than added here. Use AI overlays on the
+                toolbar.
+              </p>
+            )}
+            {tab === "strategies" && (
+              <p className="jg-cc-note">
+                Strategies are built in the Strategy Builder, not added as
+                indicators. Open Strategies on the toolbar.
+              </p>
+            )}
+            {tab === "mine" && (
+              <p className="jg-cc-note">
+                CUSTOM INDICATORS — NOT AVAILABLE. Building your own would
+                mean running code you supply, which this platform
+                deliberately cannot do. Strategy Builder covers the same
+                ground with safe declarative rules.
+              </p>
+            )}
+            {tab === "favorites" && favourites.length === 0 && (
+              <p className="jg-cc-note">
+                No favourites yet. Use the star beside any indicator to keep
+                it here.
+              </p>
+            )}
+            {tab === "recent" && recent.length === 0 && (
+              <p className="jg-cc-note">Nothing added yet.</p>
+            )}
+            {visibleGroups.length === 0 &&
+              query.trim() !== "" &&
+              !["jgold", "strategies", "mine"].includes(tab) && (
               <p className="jg-cc-note">No indicator matches “{query}”.</p>
             )}
-            {visibleGroups.map(([group, kinds]) => (
+            {!["jgold", "strategies", "mine"].includes(tab) &&
+              visibleGroups.map(([group, kinds]) => (
               <div key={group} className="jg-ind-group">
                 <span className="jg-ind-heading">{group}</span>
                 {kinds.map((kind) => (
-                  <button key={kind} type="button" className="jg-chip"
-                          title={kind}
-                          onClick={() => add(kind)}>
-                    + {INDICATOR_LABEL[kind]}
-                  </button>
+                  <span key={kind} className="jg-ind-entry">
+                    <button
+                      type="button"
+                      className="jg-ind-star"
+                      aria-pressed={favourites.includes(kind)}
+                      aria-label={favourites.includes(kind)
+                        ? `Remove ${INDICATOR_LABEL[kind]} from favourites`
+                        : `Add ${INDICATOR_LABEL[kind]} to favourites`}
+                      title="Favourite"
+                      onClick={() => toggleFavourite(kind)}
+                    >
+                      {favourites.includes(kind) ? "★" : "☆"}
+                    </button>
+                    <button type="button" className="jg-chip"
+                            title={kind}
+                            onClick={() => { add(kind); remember(kind); }}>
+                      + {INDICATOR_LABEL[kind]}
+                    </button>
+                  </span>
                 ))}
               </div>
             ))}

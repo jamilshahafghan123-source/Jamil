@@ -4050,3 +4050,37 @@ th.right {
     inset-inline-start: 0;
   }
 }
+
+/* ---- indicator library tabs (§36) ------------------------------------ */
+.jg-ind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 8px 0 4px;
+}
+.jg-ind-tab {
+  padding: 3px 8px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted, #8b93a1);
+  cursor: pointer;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.jg-ind-tab:hover { color: inherit; }
+.jg-ind-tab.active {
+  color: var(--gold, #d9a441);
+  border-color: rgba(217, 164, 65, 0.5);
+  background: rgba(217, 164, 65, 0.1);
+}
+.jg-ind-entry { display: inline-flex; align-items: center; gap: 1px; }
+.jg-ind-star {
+  border: 0;
+  background: none;
+  color: var(--gold, #d9a441);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 1px;
+}
