@@ -134,6 +134,7 @@ def open_position(
     source: TradeSource = TradeSource.MANUAL,
     signal_confidence: int | None = None,
     signal_rr: float | None = None,
+    opportunity_id: int | None = None,
     now: datetime | None = None,
 ) -> DemoPosition:
     """Build a virtual position. The caller persists it."""
@@ -155,6 +156,7 @@ def open_position(
         source=source,
         signal_confidence=signal_confidence,
         signal_rr=signal_rr,
+        opportunity_id=opportunity_id,
         opened_at=now or datetime.now(timezone.utc),
     )
 

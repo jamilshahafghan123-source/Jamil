@@ -548,3 +548,71 @@ async def test_performance_is_scoped_to_the_caller(env):
                             headers=_h(env["tokens"]["bob"]))).json()
     assert bob["today"]["trades"] == 0
     assert bob["today"]["net_pnl"] == 0
+
+
+# ------------------------------------------------ position detail (§4)
+
+
+@pytest.mark.asyncio
+async def test_a_position_reports_the_price_it_would_close_at(env):
+    """The current price is the OTHER side of the spread from the entry.
+
+    A buy opened at the ask closes at the bid. Showing the entry side for
+    both would understate every loss by the spread.
+    """
+    client, h = env["client"], _h(env["tokens"]["alice"])
+    await client.post("/api/demo/positions", headers=h,
+                      json={"symbol": "XAUUSD", "side": "BUY", "volume": 0.1})
+    body = (await client.get("/api/demo/account", headers=h)).json()
+    position = body["positions"][0]
+    assert position["entry_price"] == 3000.20      # the ask
+    assert position["current_price"] == 3000.00    # the bid
+
+
+@pytest.mark.asyncio
+async def test_a_hand_placed_position_claims_no_setup_classification(env):
+    """Null, not a plausible-looking class. There was no opportunity."""
+    client, h = env["client"], _h(env["tokens"]["alice"])
+    await client.post("/api/demo/positions", headers=h,
+                      json={"symbol": "XAUUSD", "side": "BUY", "volume": 0.1})
+    position = (await client.get("/api/demo/account", headers=h)
+                ).json()["positions"][0]
+    assert position["opportunity_id"] is None
+    for field in ("setup_class", "grade", "opportunity_score", "session",
+                  "strategy"):
+        assert position[field] is None, field
+    # Source is still real, and says where it came from.
+    assert position["source"] == "MANUAL"
+
+
+@pytest.mark.asyncio
+async def test_a_linked_position_reports_the_opportunitys_own_figures(env):
+    """One account of the trade: the fields come from the linked record."""
+    from app.models import OpportunityLog
+
+    async with env["Session"]() as db:
+        log = OpportunityLog(
+            user_id=env["alice"].id, symbol="XAUUSD", session="LONDON_NEW_YORK",
+            setup_class="A_PLUS", grade="EXCELLENT", score=84, direction="BUY",
+            confidence=82, expected_rr=2.4, required_confidence=70,
+            required_rr=1.5, ai_decision="BUY",
+        )
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+
+    client, h = env["client"], _h(env["tokens"]["alice"])
+    await client.post("/api/demo/positions", headers=h,
+                      json={"symbol": "XAUUSD", "side": "BUY", "volume": 0.1})
+    async with env["Session"]() as db:
+        row = (await db.execute(select(DemoPosition))).scalars().first()
+        row.opportunity_id = log_id
+        await db.commit()
+
+    position = (await client.get("/api/demo/account", headers=h)
+                ).json()["positions"][0]
+    assert position["setup_class"] == "A_PLUS"
+    assert position["grade"] == "EXCELLENT"
+    assert position["opportunity_score"] == 84
+    assert position["session"] == "LONDON_NEW_YORK"

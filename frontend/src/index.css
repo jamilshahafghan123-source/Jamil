@@ -3980,6 +3980,48 @@ th.right {
   display: flex; justify-content: space-between; gap: 8px; padding: 4px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
+
+/* The detailed form: one card per position. A wide table would either
+   scroll sideways in a 320px panel or shrink the figures past reading,
+   and what a trader needs here is every fact about ONE position at a
+   glance, not a grid to scan across. */
+.jg-bot-positions.detail li {
+  display: block;
+  padding: 7px 0;
+}
+.jg-bot-pos-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+}
+.jg-bot-pos-head .buy { color: #3fb950; font-weight: 600; }
+.jg-bot-pos-head .sell { color: #f4564a; font-weight: 600; }
+.jg-bot-pos-head .up { color: #3fb950; }
+.jg-bot-pos-head .down { color: #f4564a; }
+.jg-bot-pos-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px 10px;
+  margin: 5px 0 0;
+}
+.jg-bot-pos-grid > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+  border-bottom: 0;
+  font-size: 10px;
+}
+.jg-bot-pos-grid dt { color: var(--muted, #8b93a1); white-space: nowrap; }
+.jg-bot-pos-grid dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .jg-account-panel .btn { margin-top: 10px; }
 
 /* ---- mobile: rails and panels become drawers ------------------------- */

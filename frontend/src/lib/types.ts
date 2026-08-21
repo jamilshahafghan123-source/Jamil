@@ -607,6 +607,8 @@ export interface DemoPosition {
   side: "BUY" | "SELL";
   volume: number;
   entry_price: number;
+  /** The price this position would close at: the other side of the spread. */
+  current_price: number | null;
   stop_loss: number | null;
   take_profit: number | null;
   source: TradeSource;
@@ -614,6 +616,20 @@ export interface DemoPosition {
   signal_rr: number | null;
   opened_at: string | null;
   floating_pnl: number | null;
+  /**
+   * The opportunity this position came from, and its figures.
+   *
+   * All null for a position the customer opened by hand: there was no
+   * opportunity behind it, so there is no setup class to report. The
+   * table shows an em dash rather than a plausible-looking guess.
+   */
+  opportunity_id: number | null;
+  setup_class: string | null;
+  grade: string | null;
+  opportunity_score: number | null;
+  session: string | null;
+  /** Null until a strategy can execute. No strategy opens positions yet. */
+  strategy: string | null;
 }
 
 export interface DemoAccountResponse {

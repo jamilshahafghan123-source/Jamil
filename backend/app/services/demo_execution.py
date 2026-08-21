@@ -72,6 +72,7 @@ async def execute_signal(
     settings_row: RiskSettings,
     quote: demo_engine.Quote,
     account_balance: float | None = None,
+    opportunity_id: int | None = None,
 ) -> DemoExecutionResult:
     """Risk-check an AI signal and, if approved, open a *virtual* position.
 
@@ -193,6 +194,10 @@ async def execute_signal(
             source=TradeSource.AI_AUTO,
             signal_confidence=signal.confidence,
             signal_rr=signal.risk_reward,
+            # Carried, not copied: the position points at the opportunity
+            # record so setup class, grade, score and session have one
+            # home and cannot disagree with themselves.
+            opportunity_id=opportunity_id,
         )
     except demo_engine.DemoError as exc:
         return DemoExecutionResult(False, [str(exc)])

@@ -372,16 +372,93 @@ export function BotPanel({
             correctly produces no trades.
           </p>
         ) : (
-          <ul className="jg-bot-positions">
+          <ul className="jg-bot-positions detail">
             {botPositions.map((position) => (
               <li key={position.id}>
-                <span>{position.symbol} {position.side} {position.volume}</span>
-                <span className={(position.floating_pnl ?? 0) >= 0 ? "up" : "down"}>
-                  {money(position.floating_pnl, currency)}
-                </span>
+                <div className="jg-bot-pos-head">
+                  <span className={position.side === "BUY" ? "buy" : "sell"}>
+                    {position.side}
+                  </span>
+                  <strong>{position.symbol}</strong>
+                  <span>{position.volume.toFixed(2)} lots</span>
+                  <span className="jg-spacer" />
+                  <span className={tone(position.floating_pnl)}>
+                    {money(position.floating_pnl, currency)}
+                  </span>
+                </div>
+                <dl className="jg-bot-pos-grid">
+                  <div><dt>Entry</dt><dd>{position.entry_price.toFixed(2)}</dd></div>
+                  <div>
+                    <dt>Current</dt>
+                    <dd>{position.current_price != null
+                      ? position.current_price.toFixed(2) : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>SL</dt>
+                    <dd>{position.stop_loss != null
+                      ? position.stop_loss.toFixed(2) : "none"}</dd>
+                  </div>
+                  <div>
+                    <dt>TP</dt>
+                    <dd>{position.take_profit != null
+                      ? position.take_profit.toFixed(2) : "none"}</dd>
+                  </div>
+                  <div>
+                    <dt>Opened</dt>
+                    <dd>{position.opened_at
+                      ? new Date(position.opened_at).toLocaleString(undefined, {
+                          month: "short", day: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })
+                      : "—"}</dd>
+                  </div>
+                  <div><dt>Source</dt><dd>{position.source.replace("_", " ")}</dd></div>
+                  {/* Everything below comes from the linked opportunity
+                      record. A hand-placed trade has none, so these read
+                      as an em dash rather than a plausible-looking class
+                      the platform never assigned. */}
+                  <div>
+                    <dt>Setup</dt>
+                    <dd>{position.setup_class
+                      ? position.setup_class.replace("_", " ") : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Confidence</dt>
+                    <dd>{position.signal_confidence != null
+                      ? `${position.signal_confidence}%` : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Score</dt>
+                    <dd>{position.opportunity_score != null
+                      ? `${position.opportunity_score}${position.grade
+                          ? ` · ${position.grade.toLowerCase()}` : ""}`
+                      : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>R:R</dt>
+                    <dd>{position.signal_rr != null
+                      ? position.signal_rr.toFixed(2) : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Session</dt>
+                    <dd>{position.session
+                      ? position.session.replace(/_/g, " ") : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Strategy</dt>
+                    <dd>{position.strategy ?? "none"}</dd>
+                  </div>
+                </dl>
               </li>
             ))}
           </ul>
+        )}
+        {botPositions.some((p) => p.opportunity_id == null) && (
+          <p className="jg-cc-note">
+            An em dash means the platform did not record that figure for
+            this position — not that it was zero. Positions opened before
+            opportunity telemetry, or by hand, have no setup behind them.
+          </p>
         )}
       </section>
 

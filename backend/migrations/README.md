@@ -23,6 +23,7 @@ idempotent and states its effect on existing data.
 | `010_opportunity_logs.sql` | `opportunity_logs` table | No |
 | `011_alerts.sql` | `alerts` table | No |
 | `012_bot_pause.sql` | `bot_paused` column on `risk_settings` | Column added with a default |
+| `013_position_opportunity.sql` | `opportunity_id` column on `demo_positions` | Column added as NULL |
 
 `008` is the first file that changes an existing column's *type* rather
 than adding one. It converts `users.role` from the VARCHAR an older

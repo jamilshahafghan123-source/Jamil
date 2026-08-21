@@ -548,6 +548,7 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             signal=signal,
             settings_row=row,
             quote=quote,
+            opportunity_id=opportunity_id,
         )
         await db.commit()
         # The risk ruling and what execution did are recorded separately:

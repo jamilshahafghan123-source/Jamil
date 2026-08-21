@@ -30,6 +30,7 @@ from ..models import (
     DemoPosition,
     DemoPositionSide,
     DemoTrade,
+    OpportunityLog,
     TradeSource,
     User,
 )
@@ -100,13 +101,35 @@ async def _open_positions(db: AsyncSession, account: DemoAccount) -> list[DemoPo
     )
 
 
-def _position_out(p: DemoPosition, pnl: float | None) -> dict:
+def _position_out(
+    p: DemoPosition,
+    pnl: float | None,
+    quote: demo_engine.Quote | None = None,
+    opportunity: OpportunityLog | None = None,
+) -> dict:
+    """One open position, with whatever is genuinely known about it.
+
+    The setup fields come from the LINKED opportunity record, not from
+    columns copied onto the position, so there is one account of the
+    trade. A position the customer opened by hand has no opportunity
+    behind it and reports null for all of them — which is the truth, and
+    is why the UI shows an em dash there rather than a plausible-looking
+    classification.
+    """
+    # The price this position would close at now: the opposite side of
+    # the spread from the one it opened on.
+    current = None
+    if quote is not None:
+        current = (
+            quote.bid if p.side is DemoPositionSide.BUY else quote.ask
+        )
     return {
         "id": p.id,
         "symbol": p.symbol,
         "side": p.side.value,
         "volume": p.volume,
         "entry_price": p.entry_price,
+        "current_price": current,
         "stop_loss": p.stop_loss,
         "take_profit": p.take_profit,
         "source": p.source.value,
@@ -114,7 +137,35 @@ def _position_out(p: DemoPosition, pnl: float | None) -> dict:
         "signal_rr": p.signal_rr,
         "opened_at": p.opened_at.isoformat() if p.opened_at else None,
         "floating_pnl": pnl,
+        "opportunity_id": p.opportunity_id,
+        "setup_class": opportunity.setup_class if opportunity else None,
+        "grade": opportunity.grade if opportunity else None,
+        "opportunity_score": opportunity.score if opportunity else None,
+        "session": opportunity.session if opportunity else None,
+        # No strategy executes yet, so no position can have come from one.
+        # Reported as null rather than omitted, so the column can say
+        # "none" instead of the UI guessing what its absence means.
+        "strategy": None,
     }
+
+
+async def _opportunities_for(
+    db: AsyncSession, positions: list[DemoPosition]
+) -> dict[int, OpportunityLog]:
+    """The opportunity records behind these positions, in one query."""
+    ids = [p.opportunity_id for p in positions if p.opportunity_id]
+    if not ids:
+        return {}
+    rows = (
+        (
+            await db.execute(
+                select(OpportunityLog).where(OpportunityLog.id.in_(ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {row.id: row for row in rows}
 
 
 @router.get("/account")
@@ -126,6 +177,8 @@ async def get_account(
     positions = await _open_positions(db, account)
     quote = await _quote(instruments.DEFAULT_SYMBOL)
     quotes = {instruments.DEFAULT_SYMBOL: quote} if quote else {}
+
+    opportunities = await _opportunities_for(db, positions)
 
     snap = demo_engine.snapshot(account, positions, quotes)
     window = maintenance.current()
@@ -139,6 +192,8 @@ async def get_account(
                                          instruments.get(p.symbol))
                 if p.symbol in quotes
                 else None,
+                quotes.get(p.symbol),
+                opportunities.get(p.opportunity_id or -1),
             )
             for p in positions
         ],

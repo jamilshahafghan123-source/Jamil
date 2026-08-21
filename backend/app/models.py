@@ -586,6 +586,16 @@ class DemoPosition(Base):
     #: Set when the position came from an AI signal, for the history panel.
     signal_confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     signal_rr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The opportunity this position came from, when it came from one.
+    #:
+    #: A LINK rather than copied columns: setup class, grade, score and
+    #: session are already recorded on the opportunity, and duplicating
+    #: them here would let the two accounts of the same trade drift.
+    #: Null for a position the customer opened by hand, which genuinely
+    #: has no setup classification behind it.
+    opportunity_id: Mapped[int | None] = mapped_column(
+        ForeignKey("opportunity_logs.id"), nullable=True, index=True
+    )
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )
