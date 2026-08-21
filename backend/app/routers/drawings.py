@@ -59,6 +59,20 @@ KINDS = frozenset(
 #: A drawing is a handful of coordinates and maybe a label. This cap stops
 #: the column being used as general-purpose storage.
 MAX_PAYLOAD_KEYS = 32
+
+#: Drawing colours, as a CLOSED set of names rather than free strings.
+#:
+#: The stored value ends up in an SVG stroke attribute, so accepting
+#: arbitrary text would let a client put anything it liked there. Storing
+#: a name the frontend maps to a hex value means the worst a tampered
+#: payload can do is name a colour that does not exist, which renders as
+#: the default.
+STYLE_COLOURS = frozenset({
+    "default", "gold", "blue", "green", "red", "purple", "teal", "grey",
+})
+STYLE_WIDTHS = frozenset({1, 2, 3})
+MIN_OPACITY = 0.1
+MAX_OPACITY = 1.0
 MAX_TEXT_LENGTH = 500
 
 
@@ -99,6 +113,38 @@ def _validate(kind: str, payload: dict) -> None:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "Drawing text is too long"
             )
+
+    style = payload.get("style")
+    if style is None:
+        return
+    if not isinstance(style, dict):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Style must be an object")
+
+    colour = style.get("colour", "default")
+    if colour not in STYLE_COLOURS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown colour {colour!r}",
+        )
+
+    width = style.get("width", 1)
+    # A bool is an int in Python, and True would sail through a range
+    # check while meaning nothing as a stroke width.
+    if isinstance(width, bool) or width not in STYLE_WIDTHS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Line width must be 1, 2 or 3"
+        )
+
+    opacity = style.get("opacity", 1.0)
+    if isinstance(opacity, bool) or not isinstance(opacity, (int, float)):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Opacity must be a number"
+        )
+    if not MIN_OPACITY <= float(opacity) <= MAX_OPACITY:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Opacity must be between {MIN_OPACITY} and {MAX_OPACITY}",
+        )
 
 
 def _out(row: ChartDrawing) -> DrawingOut:

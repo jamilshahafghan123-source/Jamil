@@ -282,3 +282,53 @@ def test_the_allowlist_covers_the_whole_drawing_taxonomy():
         "NOTE", "PRICE_LABEL", "CALLOUT",
         "PRICE_RANGE", "DATE_RANGE",
     }
+
+
+# ---------------------------------------------------------------- styles
+
+@pytest.mark.asyncio
+async def test_a_valid_style_is_accepted(env):
+    r = await _create(env["client"], env["tokens"]["alice"], payload={
+        "x1": 1, "y1": 2990, "x2": 5, "y2": 3020,
+        "style": {"colour": "gold", "width": 2, "opacity": 0.6},
+    })
+    assert r.status_code == 200
+    assert r.json()["payload"]["style"]["colour"] == "gold"
+
+
+@pytest.mark.asyncio
+async def test_an_arbitrary_colour_string_is_refused(env):
+    """The value reaches an SVG stroke attribute, so it must be a name
+    from a closed set rather than anything a client cares to send."""
+    for attempt in ("url(javascript:alert(1))", "#fff", "red; x", "expression(1)"):
+        r = await _create(env["client"], env["tokens"]["alice"], payload={
+            "x1": 1, "y1": 2990, "x2": 5, "y2": 3020,
+            "style": {"colour": attempt},
+        })
+        assert r.status_code == 400, attempt
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_width_and_opacity_are_refused(env):
+    for style in ({"width": 40}, {"width": 0}, {"width": True},
+                  {"opacity": 5}, {"opacity": -1}, {"opacity": "thick"},
+                  {"opacity": True}):
+        r = await _create(env["client"], env["tokens"]["alice"], payload={
+            "x1": 1, "y1": 2990, "x2": 5, "y2": 3020, "style": style,
+        })
+        assert r.status_code == 400, style
+
+
+@pytest.mark.asyncio
+async def test_a_style_that_is_not_an_object_is_refused(env):
+    r = await _create(env["client"], env["tokens"]["alice"], payload={
+        "x1": 1, "y1": 2990, "x2": 5, "y2": 3020, "style": "gold",
+    })
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_drawings_without_a_style_still_work(env):
+    """Style is optional; existing drawings predate it entirely."""
+    r = await _create(env["client"], env["tokens"]["alice"])
+    assert r.status_code == 200

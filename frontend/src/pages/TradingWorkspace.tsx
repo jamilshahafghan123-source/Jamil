@@ -28,6 +28,7 @@ import { QuickTrade } from "../components/QuickTrade";
 import { DataWindow } from "../components/DataWindow";
 import { ReplayBar } from "../components/ReplayBar";
 import { AskPanel } from "../components/AskPanel";
+import { DrawingStyleBar } from "../components/DrawingStyleBar";
 import { ScreenerPanel } from "../components/ScreenerPanel";
 import {
   NotConfigured, RailPanel, RightRail, type PanelId, type RailItem,
@@ -210,6 +211,14 @@ export function TradingWorkspace({
   const [fullscreen, setFullscreen] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [hoverBar, setHoverBar] = useState<number | null>(null);
+  /**
+   * Chart cleanliness (section 6). A chart carrying twenty drawings and
+   * eight studies becomes unreadable, so everything is dimmable in one
+   * click WITHOUT deleting anything — hiding and clearing are different
+   * intentions and must not share a button.
+   */
+  const [showDrawings, setShowDrawings] = useState(true);
+  const [showIndicators, setShowIndicators] = useState(true);
   const [visibleRange, setVisibleRange] = useState<string>("1D");
 
   /**
@@ -768,6 +777,24 @@ export function TradingWorkspace({
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           {t("workspace.resetDemo")}
         </button>
+        <button
+          type="button"
+          className={showDrawings ? "btn sm active" : "btn sm"}
+          onClick={() => setShowDrawings((v) => !v)}
+          title={showDrawings
+            ? "Hide my drawings — nothing is deleted"
+            : "Show my drawings"}
+        >
+          Drawings ({draw.drawings.length})
+        </button>
+        <button
+          type="button"
+          className={showIndicators ? "btn sm active" : "btn sm"}
+          onClick={() => setShowIndicators((v) => !v)}
+          title={showIndicators ? "Hide indicators" : "Show indicators"}
+        >
+          Studies ({configs.filter((c) => c.enabled).length})
+        </button>
         <ReplayBar
           active={replayOn}
           index={replayIndex}
@@ -950,6 +977,21 @@ export function TradingWorkspace({
               }}
               onMouseLeave={() => setHoverBar(null)}
             >
+              {(() => {
+                const selected = draw.drawings.find(
+                  (d) => d.id === draw.selectedId,
+                );
+                if (!selected || !showDrawings) return null;
+                return (
+                  <DrawingStyleBar
+                    drawing={selected}
+                    onStyle={(patch) => draw.setStyle(selected.id, patch)}
+                    onToggle={(field) => draw.toggle(selected.id, field)}
+                    onDelete={() => draw.remove(selected.id)}
+                    onClose={() => draw.setSelectedId(null)}
+                  />
+                );
+              })()}
               <span className={replayOn ? "jg-live-badge replay" : "jg-live-badge"}>
                 {replayOn ? "REPLAY" : "LIVE"}
               </span>
@@ -981,7 +1023,7 @@ export function TradingWorkspace({
                 bars={visibleBars}
               markers={markers}
               priceLines={chartLines}
-                overlays={overlays}
+                overlays={showIndicators ? overlays : []}
                 onCoordinates={setCoords}
                 onVisibleRangeChange={setPaneRange}
               />
@@ -1000,7 +1042,7 @@ export function TradingWorkspace({
               <DrawingLayer
                 coords={coords}
                 tool={tool}
-                drawings={draw.drawings}
+                drawings={showDrawings ? draw.drawings : []}
                 selectedId={draw.selectedId}
                 onSelect={draw.setSelectedId}
                 onCreate={draw.create}
@@ -1012,7 +1054,7 @@ export function TradingWorkspace({
           {/* Lower panes: oscillators and volume, each with its own scale.
               lightweight-charts 4.x has no multi-pane API, so each is its
               own small chart kept in step with the main one. */}
-          {panes.map((pane) => (
+          {showIndicators && panes.map((pane) => (
             <IndicatorPane
               key={pane.id}
               bars={bars}
@@ -1026,7 +1068,7 @@ export function TradingWorkspace({
             />
           ))}
 
-          {readouts.length > 0 && (
+          {showIndicators && readouts.length > 0 && (
             <div className="jg-ind-readouts">
               {readouts.map((r) => (
                 <div key={r.id} className="jg-ind-readout">

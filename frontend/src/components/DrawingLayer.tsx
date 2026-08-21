@@ -43,6 +43,19 @@ export interface Point {
   price: number;
 }
 
+/**
+ * Presentation for one drawing. Colours are NAMES, resolved to hex here.
+ *
+ * The stored value would otherwise end up in an SVG stroke attribute, so
+ * a closed set of names means the worst a tampered payload can do is
+ * name a colour that does not exist — which falls back to the default.
+ */
+export interface DrawingStyle {
+  colour?: string;
+  width?: number;
+  opacity?: number;
+}
+
 export interface Drawing {
   id: number | string;
   kind: DrawingKind;
@@ -50,6 +63,26 @@ export interface Drawing {
   text?: string;
   locked: boolean;
   hidden: boolean;
+  style?: DrawingStyle;
+}
+
+const COLOUR = "#8ab4f8";
+
+export const STYLE_COLOURS: { name: string; hex: string; label: string }[] = [
+  { name: "default", hex: "#8ab4f8", label: "Blue-grey" },
+  { name: "gold", hex: "#d9a441", label: "Gold" },
+  { name: "blue", hex: "#6aa9ff", label: "Blue" },
+  { name: "green", hex: "#3fb950", label: "Green" },
+  { name: "red", hex: "#f4564a", label: "Red" },
+  { name: "purple", hex: "#b071e0", label: "Purple" },
+  { name: "teal", hex: "#4ec9b0", label: "Teal" },
+  { name: "grey", hex: "#9aa3b0", label: "Grey" },
+];
+
+const COLOUR_BY_NAME = new Map(STYLE_COLOURS.map((c) => [c.name, c.hex]));
+
+export function resolveColour(style: DrawingStyle | undefined): string {
+  return COLOUR_BY_NAME.get(style?.colour ?? "default") ?? COLOUR;
 }
 
 /**
@@ -130,7 +163,6 @@ const TWO_POINT: DrawingKind[] = [
 /** Kinds that ask for a text label when placed. */
 const TEXT_KINDS: DrawingKind[] = ["TEXT", "NOTE", "CALLOUT", "PRICE_LABEL"];
 
-const COLOUR = "#8ab4f8";
 const SELECTED = "#d9a441";
 
 export function DrawingLayer({
@@ -325,10 +357,16 @@ export function DrawingLayer({
           const points = drawing.points.map(project);
           if (points.some((p) => p == null)) return null;
           const pts = points as { x: number; y: number }[];
-          const stroke = drawing.id === selectedId ? SELECTED : COLOUR;
+          // Selection still wins over the drawing's own colour: knowing
+          // what is selected matters more than its styling for as long
+          // as it is selected.
+          const stroke = drawing.id === selectedId
+            ? SELECTED : resolveColour(drawing.style);
           const common = {
             stroke,
-            strokeWidth: drawing.id === selectedId ? 2 : 1.4,
+            strokeWidth: drawing.id === selectedId
+              ? 2 : (drawing.style?.width ?? 1.4),
+            strokeOpacity: drawing.style?.opacity ?? 1,
             fill: "none",
             onMouseDown: (e: React.MouseEvent) => startDrag(e, drawing),
             style: { cursor: tool === "CURSOR" && !drawing.locked

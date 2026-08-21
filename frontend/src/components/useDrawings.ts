@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { Drawing, DrawingKind, Point } from "./DrawingLayer";
+import type {
+  Drawing, DrawingKind, DrawingStyle, Point,
+} from "./DrawingLayer";
 
 /**
  * Drawing state, persistence and history.
@@ -23,7 +25,7 @@ type UndoStep =
 function fromApi(row: {
   id: number;
   kind: string;
-  payload: { points?: Point[]; text?: string };
+  payload: { points?: Point[]; text?: string; style?: DrawingStyle };
   locked: boolean;
   hidden: boolean;
 }): Drawing {
@@ -34,6 +36,7 @@ function fromApi(row: {
     text: row.payload?.text,
     locked: row.locked,
     hidden: row.hidden,
+    style: row.payload?.style,
   };
 }
 
@@ -100,6 +103,39 @@ export function useDrawings(symbol: string, timeframe: string) {
         // than showing a position that was not saved.
         setDrawings((current) =>
           current.map((d) => (d.id === id ? { ...d, points: before.points } : d)),
+        );
+      }
+    },
+    [drawings],
+  );
+
+  /**
+   * Change how a drawing looks.
+   *
+   * Style rides in the same payload as the points, because the API takes
+   * the payload whole — sending style alone would drop the geometry.
+   * A refused change is rolled back rather than left on screen unsaved.
+   */
+  const setStyle = useCallback(
+    async (id: number | string, patch: DrawingStyle) => {
+      const before = drawings.find((d) => d.id === id);
+      if (!before || before.locked) return;
+      const style = { ...(before.style ?? {}), ...patch };
+      setDrawings((current) =>
+        current.map((d) => (d.id === id ? { ...d, style } : d)),
+      );
+      try {
+        await api.updateDrawing(Number(id), {
+          payload: {
+            points: before.points,
+            ...(before.text ? { text: before.text } : {}),
+            style,
+          },
+        });
+      } catch {
+        setDrawings((current) =>
+          current.map((d) =>
+            (d.id === id ? { ...d, style: before.style } : d)),
         );
       }
     },
@@ -239,7 +275,7 @@ export function useDrawings(symbol: string, timeframe: string) {
 
   return {
     drawings, selectedId, setSelectedId, error,
-    create, move, remove, toggle, clear, undo, redo,
+    create, move, remove, toggle, clear, undo, redo, setStyle,
     canUndo: undoStack.current.length > 0,
     canRedo: redoStack.current.length > 0,
   };

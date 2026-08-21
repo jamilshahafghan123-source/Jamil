@@ -4242,3 +4242,83 @@ th.right {
 .jg-screener-table tr.current { background: rgba(217, 164, 65, 0.1); }
 .jg-screener-name { color: var(--muted, #8b93a1); }
 .jg-screener-empty { color: var(--muted, #8b93a1); text-align: center; }
+
+/* ---- drawing style bar ------------------------------------------------
+   Appears only while a drawing is selected, so it never sits over the
+   chart doing nothing. A locked drawing still shows the bar, greyed, with
+   the unlock control — hiding it would leave the customer wondering why
+   nothing responds. */
+.jg-stylebar {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 8px;
+  background: rgba(15, 17, 21, 0.95);
+  backdrop-filter: blur(3px);
+  font-size: 10px;
+  max-width: 92%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.jg-stylebar::-webkit-scrollbar { display: none; }
+.jg-stylebar > * { flex: none; }
+.jg-stylebar-kind {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-stylebar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line, #23262d);
+}
+.jg-stylebar-swatches { display: flex; gap: 3px; }
+.jg-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+.jg-swatch.active { outline: 2px solid var(--gold, #d9a441); outline-offset: 1px; }
+.jg-swatch:disabled { opacity: 0.4; cursor: not-allowed; }
+.jg-stylebar-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted, #8b93a1);
+}
+.jg-stylebar-field select {
+  padding: 2px 4px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 4px;
+  background: var(--bg-2, #0f1115);
+  color: inherit;
+  font-size: 10px;
+}
+.jg-stylebar-field input[type="range"] { width: 62px; }
+.jg-stylebar-btn {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px;
+}
+.jg-stylebar-btn.danger:hover { color: #f4564a; }
+.jg-stylebar-locked { color: var(--gold, #d9a441); }
+
+@media (max-width: 900px) {
+  /* On a phone the bar goes under the toolbar rather than over the
+     candles, where it would cover the thing being styled. */
+  .jg-stylebar { inset-inline-start: 4px; transform: none; max-width: calc(100% - 8px); }
+}
