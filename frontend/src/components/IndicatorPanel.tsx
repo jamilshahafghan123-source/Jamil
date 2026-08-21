@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_PERIOD,
   INDICATOR_GROUP,
@@ -144,12 +144,96 @@ const FEATURED: IndicatorKind[] = [
   "EMA", "RSI", "MACD", "ATR", "BOLLINGER", "SUPERTREND", "VOLUME",
 ];
 
+/**
+ * Colours an indicator may be given, as a fixed set.
+ *
+ * A free colour input would let two indicators be set to the same
+ * near-identical shade, or to the chart's own background, and a chart
+ * where a study is invisible is worse than one where it is the wrong
+ * colour. These are chosen to stay apart from each other and from the
+ * candles on a dark ground.
+ */
+export const SERIES_COLOURS: { hex: string; label: string }[] = [
+  { hex: "#d9a441", label: "Gold" },
+  { hex: "#6aa9ff", label: "Blue" },
+  { hex: "#3fb950", label: "Green" },
+  { hex: "#f4564a", label: "Red" },
+  { hex: "#b071e0", label: "Purple" },
+  { hex: "#4ec9b0", label: "Teal" },
+  { hex: "#f0a35e", label: "Amber" },
+  { hex: "#8b93a1", label: "Grey" },
+];
+
+const COLOUR_BY_VALUE = new Set(SERIES_COLOURS.map((c) => c.hex));
+
 let nextId = 1;
 
-export function useIndicators(bars: Bar[]) {
-  const [configs, setConfigs] = useState<IndicatorConfig[]>([
+const CONFIGS_KEY = "jgold.indicator.configs";
+
+/** The default chart: one moving average, not an empty pane. */
+function defaultConfigs(): IndicatorConfig[] {
+  return [
     { id: "ema-50", kind: "EMA", period: 50, enabled: true, colour: PALETTE.EMA },
-  ]);
+  ];
+}
+
+/**
+ * The indicators the customer had last time.
+ *
+ * VALIDATED FIELD BY FIELD rather than trusted. Local storage is the
+ * customer's own browser, so this is not a security boundary — but a
+ * stale entry from an older build, or a hand-edited one, would otherwise
+ * reach the maths as a kind nothing computes or a period of zero, and
+ * come out as a chart that silently draws nothing. Anything that does not
+ * survive the check is dropped, and an empty result falls back to the
+ * default rather than an empty chart.
+ */
+function readConfigs(): IndicatorConfig[] {
+  try {
+    const raw = localStorage.getItem(CONFIGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return defaultConfigs();
+    const clean: IndicatorConfig[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const kind = (item as IndicatorConfig).kind;
+      if (typeof kind !== "string" || !(kind in INDICATOR_LABEL)) continue;
+      const period = Number((item as IndicatorConfig).period);
+      clean.push({
+        id: `saved-${nextId++}`,
+        kind: kind as IndicatorKind,
+        period: Number.isFinite(period)
+          ? Math.min(400, Math.max(2, Math.round(period)))
+          : DEFAULT_PERIOD[kind as IndicatorKind] || 14,
+        enabled: (item as IndicatorConfig).enabled !== false,
+        colour: COLOUR_BY_VALUE.has(String((item as IndicatorConfig).colour))
+          ? String((item as IndicatorConfig).colour)
+          : PALETTE[kind as IndicatorKind],
+      });
+    }
+    return clean.length ? clean : defaultConfigs();
+  } catch {
+    return defaultConfigs();
+  }
+}
+
+export function useIndicators(bars: Bar[]) {
+  const [configs, setConfigs] = useState<IndicatorConfig[]>(readConfigs);
+
+  // Written on every change, so closing the tab mid-session does not lose
+  // the setup. Failures are swallowed: the chart still works for this
+  // session in a browser that refuses storage.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CONFIGS_KEY,
+        JSON.stringify(configs.map(({ kind, period, enabled, colour }) =>
+          ({ kind, period, enabled, colour }))),
+      );
+    } catch {
+      /* the setup still applies for this session */
+    }
+  }, [configs]);
 
   const overlays: OverlaySeries[] = useMemo(() => {
     const out: OverlaySeries[] = [];
@@ -702,6 +786,31 @@ export function IndicatorPanel({
                     }
                   />
                 )}
+                <select
+                  className="jg-ind-colour"
+                  value={config.colour}
+                  aria-label={`${config.kind} colour`}
+                  style={{ color: config.colour }}
+                  onChange={(e) =>
+                    setConfigs((current) =>
+                      current.map((c) =>
+                        c.id === config.id ? { ...c, colour: e.target.value } : c,
+                      ),
+                    )
+                  }
+                >
+                  {SERIES_COLOURS.map((colour) => (
+                    <option key={colour.hex} value={colour.hex}>
+                      {colour.label}
+                    </option>
+                  ))}
+                  {/* The indicator's own default, when it is not one of
+                      the eight — so opening the list never silently
+                      changes a colour the customer did not touch. */}
+                  {!SERIES_COLOURS.some((c) => c.hex === config.colour) && (
+                    <option value={config.colour}>Default</option>
+                  )}
+                </select>
                 <button
                   type="button"
                   className="jg-ind-toggle"
@@ -731,9 +840,10 @@ export function IndicatorPanel({
             ))}
           </ul>
           <p className="jg-cc-note">
-            RSI, MACD and ATR read out below the chart rather than drawing on
-            it — their ranges are not price, and the chart library has no
-            separate pane.
+            Oscillators get their own pane below the chart, kept in step
+            with it — their ranges are not price, so drawing them on the
+            candles would flatten both. This setup is remembered in this
+            browser.
           </p>
         </div>
       )}

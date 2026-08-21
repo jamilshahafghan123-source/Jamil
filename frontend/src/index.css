@@ -4563,3 +4563,15 @@ th.right {
   line-height: 1.55;
   color: var(--muted, #8b93a1);
 }
+
+/* Indicator colour picker: the swatch is the control's own text colour,
+   so the list shows what it will draw rather than naming it twice. */
+.jg-ind-colour {
+  max-width: 74px;
+  padding: 2px 3px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 4px;
+  background: var(--bg-2, #0f1115);
+  font-size: 10px;
+  font-weight: 600;
+}
