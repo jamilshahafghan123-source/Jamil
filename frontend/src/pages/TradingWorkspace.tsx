@@ -198,9 +198,29 @@ export function TradingWorkspace({
    * One panel at a time. Null means none — and when none is open the grid
    * column does not exist at all, so the chart takes the whole width.
    */
-  const [panel, setPanel] = useState<PanelId | null>("trade");
+  /**
+   * The order ticket starts open on a desktop, where it takes a column
+   * beside the chart, and closed on a phone, where it is a bottom sheet
+   * that covers four fifths of the chart. Landing on a chart you cannot
+   * see is not a chart-first workspace, and the rail is one tap away.
+   */
+  const [panel, setPanel] = useState<PanelId | null>(
+    () => (typeof window === "undefined" || window.innerWidth > 900)
+      ? "trade" : null,
+  );
   const [bottomOpen, setBottomOpen] = useState(true);
-  const [quickTrade, setQuickTrade] = useState(true);
+  /**
+   * The quick ticket starts open on a desktop and closed on a phone.
+   *
+   * It floats over the chart's top-left, which on a 390px screen is about
+   * a third of the chart — and every tap there hits the ticket instead of
+   * the candles, so drawing near recent price means tapping through an
+   * order form. The toolbar toggle brings it back; it is one tap, and the
+   * chart is what the customer came for.
+   */
+  const [quickTrade, setQuickTrade] = useState(
+    () => typeof window === "undefined" || window.innerWidth > 900,
+  );
   const [fullscreen, setFullscreen] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [hoverBar, setHoverBar] = useState<number | null>(null);
