@@ -114,3 +114,80 @@ def test_the_verification_tool_only_reads():
     for destructive in ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "DROP",
                         "ALTER", "CREATE"):
         assert destructive not in statements, destructive
+
+
+def test_014_only_adds():
+    """Additive means additive: nothing dropped, renamed or rewritten.
+
+    This is the whole safety claim of a hand-run migration against a
+    live installation, so it is asserted on the statements rather than
+    trusted to the file's own comments.
+    """
+    statements = "\n".join(
+        line.split("--", 1)[0]
+        for line in _sql("014_opportunity_fingerprint.sql").splitlines()
+    ).upper()
+    for destructive in ("DROP", "DELETE", "TRUNCATE", "UPDATE", "RENAME",
+                        "ALTER COLUMN", "SET NOT NULL"):
+        assert destructive not in statements, destructive
+
+
+def test_014_is_idempotent():
+    """Every statement must survive being run twice.
+
+    There is no migration runner here, so "did this already run?" is a
+    question a person answers from memory. The file has to be safe when
+    they answer it wrong.
+    """
+    sql = _sql("014_opportunity_fingerprint.sql")
+    adds = re.findall(r"ADD COLUMN(\s+IF NOT EXISTS)?", sql, re.IGNORECASE)
+    assert adds, "014 no longer adds any column"
+    assert all(guard.strip() for guard in adds), (
+        "every ADD COLUMN needs IF NOT EXISTS"
+    )
+    creates = re.findall(r"CREATE INDEX(\s+IF NOT EXISTS)?", sql,
+                         re.IGNORECASE)
+    assert all(guard.strip() for guard in creates), (
+        "every CREATE INDEX needs IF NOT EXISTS"
+    )
+
+
+def test_014_does_not_break_existing_rows():
+    """The one NOT NULL column carries a default.
+
+    Adding a NOT NULL column without one fails outright on any table
+    that already has rows — which is every table this migration is for.
+    """
+    sql = _sql("014_opportunity_fingerprint.sql")
+    not_null = re.search(
+        r"ADD COLUMN IF NOT EXISTS\s+(\w+)\s+BOOLEAN NOT NULL\s+DEFAULT\s+(\w+)",
+        sql, re.IGNORECASE,
+    )
+    assert not_null, "the boolean column must be NOT NULL with a default"
+    assert not_null.group(2).upper() == "FALSE", (
+        "nothing was suppressed before this column existed"
+    )
+    # The other two must stay nullable: an existing row has no structure
+    # state and no entry price, and inventing one would let it collide
+    # with a live setup.
+    for column in ("structure_state", "entry_price"):
+        added = re.search(
+            rf"ADD COLUMN IF NOT EXISTS\s+{column}\s+([^;]+);", sql,
+            re.IGNORECASE,
+        )
+        assert added, column
+        assert "NOT NULL" not in added.group(1).upper()
+
+
+def test_014_matches_the_model_it_serves():
+    """A column the migration adds and the model does not use is dead."""
+    from app.models import OpportunityLog
+
+    columns = OpportunityLog.__table__.c
+    sql = _sql("014_opportunity_fingerprint.sql")
+    for name in ("structure_state", "entry_price", "suppressed_as_duplicate"):
+        assert name in columns, f"the model dropped {name}"
+        assert name in sql, f"the migration dropped {name}"
+    assert columns["structure_state"].nullable is True
+    assert columns["entry_price"].nullable is True
+    assert columns["suppressed_as_duplicate"].nullable is False

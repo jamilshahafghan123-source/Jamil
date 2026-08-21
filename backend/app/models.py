@@ -764,6 +764,28 @@ class OpportunityLog(Base):
     #: The full factor breakdown, so a score can always be interrogated.
     score_breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    #: The two fields a fingerprint needs that nothing else records.
+    #:
+    #: Null on rows written before migration 014. A fingerprint cannot be
+    #: rebuilt without them, so such a row can never match — an old
+    #: detection can never suppress a new setup.
+    structure_state: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    #: Whether this detection was refused as a repeat of one still inside
+    #: its cooldown.
+    #:
+    #: Reporting, and section 49 wants it: "the engine kept finding the
+    #: setup it had already traded" and "the engine found nothing" are
+    #: different quiet hours. It is not the cooldown anchor — that is a
+    #: previous detection which actually FILLED, so neither a suppressed
+    #: detection nor one the risk engine refused can lock a setup out.
+    suppressed_as_duplicate: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
 
 class AlertKind(str, enum.Enum):
     """What an alert watches. A closed set, like every other vocabulary here.

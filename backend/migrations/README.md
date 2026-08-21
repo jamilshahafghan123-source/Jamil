@@ -24,6 +24,7 @@ idempotent and states its effect on existing data.
 | `011_alerts.sql` | `alerts` table | No |
 | `012_bot_pause.sql` | `bot_paused` column on `risk_settings` | Column added with a default |
 | `013_position_opportunity.sql` | `opportunity_id` column on `demo_positions` | Column added as NULL |
+| `014_opportunity_fingerprint.sql` | `structure_state`, `entry_price`, `suppressed_as_duplicate` on `opportunity_logs` | Columns added as NULL / false |
 
 ## Checking what a database actually has
 

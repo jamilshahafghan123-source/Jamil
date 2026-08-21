@@ -26,7 +26,9 @@ FROM (
         ('011_alerts.sql',           'alerts table'),
         ('012_bot_pause.sql',        'risk_settings.bot_paused'),
         ('013_position_opportunity.sql',
-                                     'demo_positions.opportunity_id')
+                                     'demo_positions.opportunity_id'),
+        ('014_opportunity_fingerprint.sql',
+                                     'opportunity_logs fingerprint columns')
 ) AS expected(migration, change)
 JOIN LATERAL (
     SELECT CASE expected.migration
@@ -58,6 +60,13 @@ JOIN LATERAL (
             SELECT 1 FROM information_schema.columns
             WHERE table_name = 'demo_positions'
               AND column_name = 'opportunity_id')
+        -- All three, not any one: a half-applied 014 cannot rebuild a
+        -- fingerprint and must not read as PRESENT.
+        WHEN '014_opportunity_fingerprint.sql' THEN (
+            SELECT COUNT(*) = 3 FROM information_schema.columns
+            WHERE table_name = 'opportunity_logs'
+              AND column_name IN ('structure_state', 'entry_price',
+                                  'suppressed_as_duplicate'))
         ELSE FALSE
     END AS ok
 ) AS found ON TRUE
@@ -79,3 +88,16 @@ SELECT indexname AS "index on demo_positions.opportunity_id"
 FROM pg_indexes
 WHERE tablename = 'demo_positions'
   AND indexname = 'ix_demo_positions_opportunity_id';
+
+SELECT column_name AS "opportunity_logs fingerprint column",
+       data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_name = 'opportunity_logs'
+  AND column_name IN ('structure_state', 'entry_price',
+                      'suppressed_as_duplicate')
+ORDER BY column_name;
+
+SELECT indexname AS "index for the cooldown lookup"
+FROM pg_indexes
+WHERE tablename = 'opportunity_logs'
+  AND indexname = 'ix_opportunity_logs_fingerprint_lookup';
