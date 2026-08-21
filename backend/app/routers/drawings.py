@@ -36,10 +36,23 @@ router = APIRouter(
 
 #: The shapes the client may create. An unknown kind is refused rather than
 #: stored, so the table cannot fill with values nothing can render.
+#: Every drawing type the platform will store. A kind outside this set is
+#: refused, so a client cannot invent one — the allowlist is the boundary,
+#: not the UI's tool list.
 KINDS = frozenset(
     {
         "TREND_LINE", "HORIZONTAL", "VERTICAL", "RECTANGLE", "ARROW",
         "TEXT", "RULER", "LONG_POSITION", "SHORT_POSITION", "FIB",
+        # Lines that continue past their second point.
+        "RAY", "EXTENDED_LINE", "HORIZONTAL_RAY", "CHANNEL",
+        # Fibonacci family.
+        "FIB_EXTENSION", "FIB_FAN", "FIB_ARCS",
+        # Freehand and shapes.
+        "BRUSH", "CIRCLE", "TRIANGLE",
+        # Annotation.
+        "NOTE", "PRICE_LABEL", "CALLOUT",
+        # Measurement.
+        "PRICE_RANGE", "DATE_RANGE",
     }
 )
 

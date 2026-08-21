@@ -254,3 +254,31 @@ def test_ai_overlays_are_never_persisted_to_this_table():
     for module in ("app/routers/analysis.py", "app/services/analyst.py"):
         source = Path(module).read_text(encoding="utf-8")
         assert "ChartDrawing" not in source
+
+
+def test_every_allowed_kind_is_upper_snake_case():
+    """The allowlist is the boundary, so its shape must stay predictable."""
+    from app.routers.drawings import KINDS
+
+    for kind in KINDS:
+        assert kind == kind.upper()
+        assert kind.replace("_", "").isalpha()
+
+
+def test_the_allowlist_covers_the_whole_drawing_taxonomy():
+    """A tool the UI offers but the backend refuses fails only on save.
+
+    Pinning the set rather than counting it means adding a tool to the
+    interface without adding it here fails loudly here first.
+    """
+    from app.routers.drawings import KINDS
+
+    assert KINDS == {
+        "TREND_LINE", "HORIZONTAL", "VERTICAL", "RECTANGLE", "ARROW",
+        "TEXT", "RULER", "LONG_POSITION", "SHORT_POSITION", "FIB",
+        "RAY", "EXTENDED_LINE", "HORIZONTAL_RAY", "CHANNEL",
+        "FIB_EXTENSION", "FIB_FAN", "FIB_ARCS",
+        "BRUSH", "CIRCLE", "TRIANGLE",
+        "NOTE", "PRICE_LABEL", "CALLOUT",
+        "PRICE_RANGE", "DATE_RANGE",
+    }

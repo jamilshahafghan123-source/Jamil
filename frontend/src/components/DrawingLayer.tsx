@@ -26,7 +26,17 @@ import type { ChartCoordinates } from "./TradingChart";
 export type DrawingKind =
   | "TREND_LINE" | "HORIZONTAL" | "VERTICAL" | "RECTANGLE"
   | "ARROW" | "TEXT" | "RULER" | "LONG_POSITION" | "SHORT_POSITION"
-  | "FIB";
+  | "FIB"
+  // Lines that continue past their second point.
+  | "RAY" | "EXTENDED_LINE" | "HORIZONTAL_RAY" | "CHANNEL"
+  // Fibonacci family beyond the plain retracement.
+  | "FIB_EXTENSION" | "FIB_FAN" | "FIB_ARCS"
+  // Freehand and shapes.
+  | "BRUSH" | "CIRCLE" | "TRIANGLE"
+  // Annotation.
+  | "NOTE" | "PRICE_LABEL" | "CALLOUT"
+  // Measurement.
+  | "PRICE_RANGE" | "DATE_RANGE";
 
 export interface Point {
   time: string;
@@ -42,6 +52,33 @@ export interface Drawing {
   hidden: boolean;
 }
 
+/**
+ * Tool groups for the rail's flyout menus.
+ *
+ * The rail shows one button per GROUP and the group opens on click, which
+ * is what keeps twenty-five tools inside a 46px strip. Showing every tool
+ * at once would either wrap the rail into a block or shrink the icons past
+ * usefulness — both cost the chart the space this layout exists to give it.
+ */
+export const TOOL_GROUPS: {
+  id: string; label: string; glyph: string; kinds: (DrawingKind | "CURSOR")[];
+}[] = [
+  { id: "cursor", label: "Cursor", glyph: "\u2196", kinds: ["CURSOR"] },
+  { id: "lines", label: "Lines and channels", glyph: "\uFF0F",
+    kinds: ["TREND_LINE", "RAY", "EXTENDED_LINE", "HORIZONTAL",
+            "HORIZONTAL_RAY", "VERTICAL", "CHANNEL", "ARROW"] },
+  { id: "fib", label: "Fibonacci", glyph: "%",
+    kinds: ["FIB", "FIB_EXTENSION", "FIB_FAN", "FIB_ARCS"] },
+  { id: "shapes", label: "Shapes and brush", glyph: "\u25AD",
+    kinds: ["RECTANGLE", "CIRCLE", "TRIANGLE", "BRUSH"] },
+  { id: "text", label: "Text and notes", glyph: "T",
+    kinds: ["TEXT", "NOTE", "CALLOUT", "PRICE_LABEL"] },
+  { id: "measure", label: "Measurement", glyph: "\u2195",
+    kinds: ["RULER", "PRICE_RANGE", "DATE_RANGE"] },
+  { id: "position", label: "Position planners", glyph: "\u25B2",
+    kinds: ["LONG_POSITION", "SHORT_POSITION"] },
+];
+
 export const TOOLS: { kind: DrawingKind | "CURSOR"; label: string; hint: string }[] = [
   { kind: "CURSOR", label: "↖", hint: "Select and move" },
   { kind: "TREND_LINE", label: "／", hint: "Trend line" },
@@ -54,6 +91,21 @@ export const TOOLS: { kind: DrawingKind | "CURSOR"; label: string; hint: string 
   { kind: "LONG_POSITION", label: "▲", hint: "Long position" },
   { kind: "SHORT_POSITION", label: "▼", hint: "Short position" },
   { kind: "FIB", label: "%", hint: "Fibonacci retracement" },
+  { kind: "RAY", label: "\u2197", hint: "Ray" },
+  { kind: "EXTENDED_LINE", label: "\u2194", hint: "Extended line" },
+  { kind: "HORIZONTAL_RAY", label: "\u2192", hint: "Horizontal ray" },
+  { kind: "CHANNEL", label: "\u2225", hint: "Parallel channel" },
+  { kind: "FIB_EXTENSION", label: "\u2192%", hint: "Fibonacci extension" },
+  { kind: "FIB_FAN", label: "\u2A5B", hint: "Fibonacci fan" },
+  { kind: "FIB_ARCS", label: "\u25DC", hint: "Fibonacci arcs" },
+  { kind: "BRUSH", label: "\u270E", hint: "Brush" },
+  { kind: "CIRCLE", label: "\u25CB", hint: "Circle" },
+  { kind: "TRIANGLE", label: "\u25B3", hint: "Triangle" },
+  { kind: "NOTE", label: "\u270D", hint: "Note" },
+  { kind: "CALLOUT", label: "\u2691", hint: "Callout" },
+  { kind: "PRICE_LABEL", label: "\u25C6", hint: "Price label" },
+  { kind: "PRICE_RANGE", label: "\u2921", hint: "Price range" },
+  { kind: "DATE_RANGE", label: "\u2194\uFE0E", hint: "Date range" },
 ];
 
 /**
@@ -63,11 +115,20 @@ export const TOOLS: { kind: DrawingKind | "CURSOR"; label: string; hint: string 
  */
 const FIB_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
+/** Extensions project past the move; the ratios above 1 are the targets. */
+const EXTENSION_RATIOS = [0.618, 1, 1.272, 1.618, 2, 2.618];
+const FAN_RATIOS = [0.382, 0.5, 0.618];
+const ARC_RATIOS = [0.382, 0.5, 0.618];
+
 /** Shapes needing two clicks; the rest are placed with one. */
 const TWO_POINT: DrawingKind[] = [
   "TREND_LINE", "RECTANGLE", "ARROW", "RULER", "LONG_POSITION", "SHORT_POSITION",
-  "FIB",
+  "FIB", "RAY", "EXTENDED_LINE", "CHANNEL", "FIB_EXTENSION", "FIB_FAN",
+  "FIB_ARCS", "CIRCLE", "TRIANGLE", "PRICE_RANGE", "DATE_RANGE",
 ];
+
+/** Kinds that ask for a text label when placed. */
+const TEXT_KINDS: DrawingKind[] = ["TEXT", "NOTE", "CALLOUT", "PRICE_LABEL"];
 
 const COLOUR = "#8ab4f8";
 const SELECTED = "#d9a441";
@@ -153,8 +214,16 @@ export function DrawingLayer({
       return;
     }
 
-    if (tool === "TEXT") {
-      const text = window.prompt("Note text");
+    if (TEXT_KINDS.includes(tool)) {
+      // A price label reads the price it was dropped on, so it needs no
+      // typing — asking for text there would be busywork.
+      if (tool === "PRICE_LABEL") {
+        onCreate(tool, [point], point.price.toFixed(2));
+        return;
+      }
+      const text = window.prompt(
+        tool === "CALLOUT" ? "Callout text" : "Note text",
+      );
       if (text && text.trim()) onCreate(tool, [point], text.trim().slice(0, 200));
       return;
     }
@@ -273,6 +342,107 @@ export function DrawingLayer({
             case "VERTICAL":
               return <line key={drawing.id} x1={pts[0].x} y1={0} x2={pts[0].x}
                            y2={height} {...common} />;
+            case "HORIZONTAL_RAY":
+              // A ray continues to the right edge only; the left side of
+              // the level is deliberately not drawn, which is the whole
+              // difference between a ray and a horizontal line.
+              return <line key={drawing.id} x1={pts[0].x} y1={pts[0].y}
+                           x2={width} y2={pts[0].y} {...common} />;
+            case "RAY":
+            case "EXTENDED_LINE": {
+              // Extend along the segment's own direction rather than
+              // clamping to the viewport corners, so the slope a customer
+              // drew is the slope that continues.
+              const dx = pts[1].x - pts[0].x;
+              const dy = pts[1].y - pts[0].y;
+              const length = Math.hypot(dx, dy) || 1;
+              const reach = (width + height) * 2;
+              const ux = (dx / length) * reach;
+              const uy = (dy / length) * reach;
+              const start = drawing.kind === "EXTENDED_LINE"
+                ? { x: pts[0].x - ux, y: pts[0].y - uy }
+                : pts[0];
+              return (
+                <line key={drawing.id} x1={start.x} y1={start.y}
+                      x2={pts[0].x + ux} y2={pts[0].y + uy} {...common} />
+              );
+            }
+            case "CHANNEL": {
+              // Two parallel lines a fixed price distance apart, measured
+              // from the two clicked points.
+              const dy = pts[1].y - pts[0].y;
+              const offset = Math.abs(dy) || 40;
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}>
+                  <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[0].y}
+                        stroke={stroke} strokeWidth={common.strokeWidth} fill="none" />
+                  <line x1={pts[0].x} y1={pts[0].y + offset}
+                        x2={pts[1].x} y2={pts[0].y + offset}
+                        stroke={stroke} strokeWidth={common.strokeWidth} fill="none" />
+                  <polygon
+                    points={`${pts[0].x},${pts[0].y} ${pts[1].x},${pts[0].y} `
+                          + `${pts[1].x},${pts[0].y + offset} ${pts[0].x},${pts[0].y + offset}`}
+                    fill="rgba(138, 180, 248, 0.07)" stroke="none" />
+                </g>
+              );
+            }
+            case "CIRCLE": {
+              const rx = Math.abs(pts[1].x - pts[0].x);
+              const ry = Math.abs(pts[1].y - pts[0].y);
+              return <ellipse key={drawing.id} cx={pts[0].x} cy={pts[0].y}
+                              rx={rx || 4} ry={ry || 4} {...common}
+                              fill="rgba(138, 180, 248, 0.08)" />;
+            }
+            case "TRIANGLE":
+              return (
+                <polygon key={drawing.id}
+                         points={`${pts[0].x},${pts[1].y} ${pts[1].x},${pts[1].y} `
+                               + `${(pts[0].x + pts[1].x) / 2},${pts[0].y}`}
+                         {...common} fill="rgba(138, 180, 248, 0.08)" />
+              );
+            case "PRICE_RANGE": {
+              // Reports the move in price and as a percentage, which is
+              // what the tool is for — the box is only a handle.
+              const from = drawing.points[0].price;
+              const to = drawing.points[1].price;
+              const change = to - from;
+              const pct = from !== 0 ? (change / from) * 100 : 0;
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}>
+                  <rect x={Math.min(pts[0].x, pts[1].x)}
+                        y={Math.min(pts[0].y, pts[1].y)}
+                        width={Math.abs(pts[1].x - pts[0].x) || 50}
+                        height={Math.abs(pts[1].y - pts[0].y)}
+                        fill={change >= 0 ? "rgba(63,185,80,0.12)" : "rgba(244,86,74,0.12)"}
+                        stroke={stroke} strokeWidth={1} />
+                  <text x={Math.min(pts[0].x, pts[1].x) + 4}
+                        y={Math.min(pts[0].y, pts[1].y) - 4}
+                        fill={stroke} fontSize={10}>
+                    {change >= 0 ? "+" : ""}{change.toFixed(2)} ({pct.toFixed(2)}%)
+                  </text>
+                </g>
+              );
+            }
+            case "DATE_RANGE": {
+              // Bar count is the honest measure here: the elapsed wall time
+              // between two bars spans weekends and gaps the market was
+              // shut for, so it would overstate how long the move took.
+              const a = Date.parse(drawing.points[0].time);
+              const b = Date.parse(drawing.points[1].time);
+              const hours = Math.abs(b - a) / 3_600_000;
+              const span = hours >= 48 ? `${(hours / 24).toFixed(1)}d`
+                         : `${hours.toFixed(1)}h`;
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}>
+                  <rect x={Math.min(pts[0].x, pts[1].x)} y={0}
+                        width={Math.abs(pts[1].x - pts[0].x) || 40} height={height}
+                        fill="rgba(138, 180, 248, 0.07)" stroke={stroke}
+                        strokeWidth={1} strokeDasharray="4 3" />
+                  <text x={(pts[0].x + pts[1].x) / 2} y={14} fill={stroke}
+                        fontSize={10} textAnchor="middle">{span}</text>
+                </g>
+              );
+            }
             case "TREND_LINE":
             case "ARROW":
             case "RULER":
@@ -360,6 +530,130 @@ export function DrawingLayer({
                   {drawing.text ?? ""}
                 </text>
               );
+            case "NOTE":
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}
+                   style={{ cursor: "move" }}>
+                  <rect x={pts[0].x} y={pts[0].y - 12}
+                        width={Math.max(28, (drawing.text?.length ?? 0) * 6 + 10)}
+                        height={17} rx={4}
+                        fill="rgba(15,17,21,0.86)" stroke={stroke} strokeWidth={1} />
+                  <text x={pts[0].x + 5} y={pts[0].y} fill={stroke} fontSize={10}>
+                    {drawing.text ?? ""}
+                  </text>
+                </g>
+              );
+            case "CALLOUT":
+              // A leader line from the label to the exact point it marks,
+              // so the annotation cannot drift away from its subject.
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}
+                   style={{ cursor: "move" }}>
+                  <line x1={pts[0].x} y1={pts[0].y} x2={pts[0].x + 26}
+                        y2={pts[0].y - 22} stroke={stroke} strokeWidth={1} />
+                  <circle cx={pts[0].x} cy={pts[0].y} r={2.5} fill={stroke} />
+                  <rect x={pts[0].x + 26} y={pts[0].y - 34}
+                        width={Math.max(30, (drawing.text?.length ?? 0) * 6 + 12)}
+                        height={18} rx={4}
+                        fill="rgba(15,17,21,0.9)" stroke={stroke} strokeWidth={1} />
+                  <text x={pts[0].x + 32} y={pts[0].y - 21} fill={stroke} fontSize={10}>
+                    {drawing.text ?? ""}
+                  </text>
+                </g>
+              );
+            case "PRICE_LABEL":
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}
+                   style={{ cursor: "move" }}>
+                  <line x1={pts[0].x} y1={pts[0].y} x2={width} y2={pts[0].y}
+                        stroke={stroke} strokeWidth={1} strokeDasharray="2 3" />
+                  <rect x={pts[0].x - 2} y={pts[0].y - 8} width={52} height={16}
+                        rx={3} fill={stroke} />
+                  <text x={pts[0].x + 24} y={pts[0].y + 4} fill="#0b0d11"
+                        fontSize={10} textAnchor="middle">
+                    {drawing.points[0].price.toFixed(2)}
+                  </text>
+                </g>
+              );
+            case "BRUSH":
+              // Freehand is stored as the points it was drawn through, so
+              // it reprojects correctly at any zoom like every other shape.
+              return (
+                <polyline key={drawing.id}
+                          points={pts.map((p) => `${p.x},${p.y}`).join(" ")}
+                          {...common} strokeLinejoin="round"
+                          strokeLinecap="round" />
+              );
+            case "FIB_EXTENSION":
+            case "FIB_FAN":
+            case "FIB_ARCS": {
+              const [a, b] = drawing.points;
+              const span = b.price - a.price;
+              const left = Math.min(pts[0].x, pts[1].x);
+              const right = Math.max(pts[0].x, pts[1].x);
+
+              if (drawing.kind === "FIB_EXTENSION") {
+                // Projects BEYOND the second point: 1.272 and 1.618 are
+                // targets past the move, which is what separates an
+                // extension from a retracement.
+                return (
+                  <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}>
+                    {EXTENSION_RATIOS.map((ratio) => {
+                      const price = a.price + span * ratio;
+                      const y = coords?.priceToY(price);
+                      if (y == null) return null;
+                      return (
+                        <g key={ratio}>
+                          <line x1={left} y1={y} x2={right + 60} y2={y}
+                                stroke={stroke} strokeWidth={1}
+                                strokeDasharray={ratio > 1 ? undefined : "3 3"}
+                                opacity={ratio > 1 ? 0.95 : 0.5} />
+                          <text x={left + 3} y={y - 3} fill={stroke} fontSize={9}>
+                            {ratio}  {price.toFixed(2)}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              }
+
+              if (drawing.kind === "FIB_FAN") {
+                // Rays from the first point through fractions of the move.
+                return (
+                  <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}>
+                    {FAN_RATIOS.map((ratio) => {
+                      const price = a.price + span * ratio;
+                      const y = coords?.priceToY(price);
+                      if (y == null) return null;
+                      const dx = pts[1].x - pts[0].x || 1;
+                      const dy = y - pts[0].y;
+                      const scale = (width * 2) / Math.abs(dx);
+                      return (
+                        <line key={ratio} x1={pts[0].x} y1={pts[0].y}
+                              x2={pts[0].x + dx * scale} y2={pts[0].y + dy * scale}
+                              stroke={stroke} strokeWidth={1} opacity={0.75} />
+                      );
+                    })}
+                  </g>
+                );
+              }
+
+              // Arcs: semicircles centred on the second point, radius scaled
+              // by the move's own pixel length.
+              const radius = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+              return (
+                <g key={drawing.id} onMouseDown={(e) => startDrag(e, drawing)}>
+                  {ARC_RATIOS.map((ratio) => (
+                    <path key={ratio}
+                          d={`M ${pts[1].x - radius * ratio} ${pts[1].y} `
+                           + `A ${radius * ratio} ${radius * ratio} 0 0 1 `
+                           + `${pts[1].x + radius * ratio} ${pts[1].y}`}
+                          stroke={stroke} strokeWidth={1} fill="none" opacity={0.7} />
+                  ))}
+                </g>
+              );
+            }
             default:
               return null;
           }

@@ -10,7 +10,9 @@ import {
 } from "../components/TradingChart";
 import { AIPanel, type AISetup } from "../components/AIPanel";
 import { IndicatorPanel, useIndicators } from "../components/IndicatorPanel";
-import { DrawingLayer, TOOLS, type DrawingKind } from "../components/DrawingLayer";
+import {
+  DrawingLayer, TOOLS, TOOL_GROUPS, type DrawingKind,
+} from "../components/DrawingLayer";
 import { SessionLayer } from "../components/SessionLayer";
 import { SymbolSearch } from "../components/SymbolSearch";
 import { TechnicalSummary } from "../components/TechnicalSummary";
@@ -162,6 +164,7 @@ export function TradingWorkspace({
   const [bottomOpen, setBottomOpen] = useState(true);
   const [quickTrade, setQuickTrade] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
 
   /**
@@ -696,18 +699,67 @@ export function TradingWorkspace({
       {/* --------------------------------------------------- chart + ticket */}
       <div className="jg-ws-main">
         <nav className="jg-draw-tools" aria-label="Drawing tools">
-          {TOOLS.map((t) => (
-            <button
-              key={t.kind}
-              type="button"
-              title={t.hint}
-              aria-label={t.hint}
-              className={tool === t.kind ? "jg-draw-tool active" : "jg-draw-tool"}
-              onClick={() => setTool(t.kind as DrawingKind | "CURSOR")}
-            >
-              {t.label}
-            </button>
-          ))}
+          {/* One button per GROUP, opening a flyout. Twenty-five tools do
+              not fit a 46px rail, and widening the rail or shrinking the
+              icons both cost the chart the space this layout exists to
+              give it. */}
+          {TOOL_GROUPS.map((group) => {
+            const holdsActive = group.kinds.includes(tool);
+            return (
+              <div key={group.id} className="jg-draw-group">
+                <button
+                  type="button"
+                  className={holdsActive ? "jg-draw-tool active" : "jg-draw-tool"}
+                  title={group.label}
+                  aria-label={group.label}
+                  aria-expanded={openGroup === group.id}
+                  onClick={() => {
+                    // A single-tool group selects immediately; there is
+                    // nothing to choose between.
+                    if (group.kinds.length === 1) {
+                      setTool(group.kinds[0] as DrawingKind | "CURSOR");
+                      setOpenGroup(null);
+                      return;
+                    }
+                    setOpenGroup(openGroup === group.id ? null : group.id);
+                  }}
+                >
+                  {group.glyph}
+                  {group.kinds.length > 1 && (
+                    <span className="jg-draw-more" aria-hidden="true" />
+                  )}
+                </button>
+
+                {openGroup === group.id && (
+                  <div className="jg-draw-flyout" role="menu"
+                       aria-label={group.label}>
+                    {group.kinds.map((kind) => {
+                      const meta = TOOLS.find((entry) => entry.kind === kind);
+                      return (
+                        <button
+                          key={kind}
+                          type="button"
+                          role="menuitem"
+                          className={tool === kind
+                            ? "jg-draw-flyout-item active" : "jg-draw-flyout-item"}
+                          onClick={() => {
+                            setTool(kind as DrawingKind | "CURSOR");
+                            setOpenGroup(null);
+                          }}
+                        >
+                          <span className="jg-draw-flyout-glyph">
+                            {meta?.label ?? "?"}
+                          </span>
+                          {meta?.hint ?? kind}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
           <span className="jg-draw-sep" />
           <button type="button" title="Undo" aria-label="Undo"
                   className="jg-draw-tool" disabled={!draw.canUndo}
