@@ -18,6 +18,7 @@
   RecoveryStatus,
   BrokerDirectory,
   AlertFeed,
+  BotStatus,
   AlertKinds,
   CustomerAlert,
   OpportunityFeed,
@@ -239,6 +240,19 @@ export const api = {
 
   /** Broker directory. Statuses only — no credentials, no ratings. */
   brokers: () => request<BrokerDirectory>("/api/demo/brokers"),
+
+  /** What the bot is genuinely doing — derived, never asserted. */
+  botStatus: () => request<BotStatus>("/api/risk/bot/status"),
+
+  setBotEnabled: (enabled: boolean) =>
+    request<RiskSettings>("/api/risk/bot", {
+      method: "POST", body: JSON.stringify({ enabled }),
+    }),
+
+  setTradingMode: (mode: string) =>
+    request<RiskSettings>("/api/risk/mode", {
+      method: "POST", body: JSON.stringify({ mode }),
+    }),
 
   // ---- Alerts. In-app delivery only; no provider is connected. ---------
 

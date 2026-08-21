@@ -860,3 +860,16 @@ export interface AlertFeed {
   alerts: CustomerAlert[];
   unacknowledged: number;
 }
+
+/** Bot state, derived from real observations (section 17). */
+export interface BotStatus {
+  state: string;
+  label: string;
+  detail: string;
+  blocked: boolean;
+  active: boolean;
+  bot_enabled: boolean;
+  trading_mode: TradingMode;
+  venue: string;
+  open_positions: number;
+}

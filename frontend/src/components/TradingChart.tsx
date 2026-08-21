@@ -143,7 +143,10 @@ export function TradingChart({
   useEffect(() => {
     if (!holder.current) return;
     const instance = createChart(holder.current, {
-      height,
+      // Height comes from the host element rather than a constant, so the
+      // chart grows into the space a closed panel hands back instead of
+      // staying a fixed-size card in a large empty area.
+      height: height ?? holder.current?.clientHeight ?? 460,
       layout: {
         background: { type: ColorType.Solid, color: "#0b0d10" },
         textColor: "#9aa3b0",
@@ -242,7 +245,10 @@ export function TradingChart({
 
     const resize = () => {
       if (holder.current) {
-        instance.applyOptions({ width: holder.current.clientWidth });
+        instance.applyOptions({
+          width: holder.current.clientWidth,
+          height: height ?? holder.current.clientHeight,
+        });
         notify();
       }
     };

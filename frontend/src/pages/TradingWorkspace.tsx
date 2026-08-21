@@ -21,6 +21,11 @@ import { StrategyBuilder } from "../components/StrategyBuilder";
 import { OpportunityLog } from "../components/OpportunityLog";
 import { AlertsPanel } from "../components/AlertsPanel";
 import { IndicatorPane } from "../components/IndicatorPane";
+import { BotPanel } from "../components/BotPanel";
+import { QuickTrade } from "../components/QuickTrade";
+import {
+  NotConfigured, RailPanel, RightRail, type PanelId, type RailItem,
+} from "../components/RightRail";
 import type { LogicalRange } from "lightweight-charts";
 import { useLanguage } from "../i18n/useLanguage";
 import {
@@ -75,6 +80,34 @@ function pnlClass(value: number | null | undefined): string {
   return value > 0 ? "up" : "down";
 }
 
+/**
+ * The right rail. Icons are plain geometry drawn here — original marks,
+ * not a licensed icon set. Order puts the panels a trader reaches for
+ * during a session first.
+ */
+const RAIL_ITEMS: RailItem[] = [
+  { id: "trade", label: "Trade", glyph: "\u21C5" },
+  { id: "bot", label: "Bot", glyph: "\u25C8" },
+  { id: "watchlist", label: "Watchlist", glyph: "\u2630" },
+  { id: "alerts", label: "Alerts", glyph: "\u25D4" },
+  { id: "objects", label: "Object tree", glyph: "\u29C9" },
+  { id: "technicals", label: "Technicals", glyph: "\u25A4" },
+  { id: "account", label: "Account", glyph: "$" },
+  { id: "news", label: "News", glyph: "\u25A6" },
+  { id: "calendar", label: "Calendar", glyph: "\u25A3" },
+  { id: "sentiment", label: "Sentiment", glyph: "\u25D0" },
+  { id: "screener", label: "Screener", glyph: "\u229E" },
+];
+
+const PANEL_TITLES: Record<PanelId, string> = {
+  trade: "Order ticket", bot: "Bot", watchlist: "Watchlist",
+  alerts: "Alerts", objects: "Object tree", technicals: "Technicals",
+  account: "Account", news: "News", calendar: "Calendar",
+  sentiment: "Sentiment", screener: "Screener", data: "Data window",
+  chat: "Ask J Gold AI", products: "Products", help: "Help",
+  ai: "AI analysis", strategies: "Strategies", brokers: "Brokers",
+};
+
 export function TradingWorkspace({
   onLogout,
   onOpenOverview,
@@ -121,6 +154,38 @@ export function TradingWorkspace({
   const [searchOpen, setSearchOpen] = useState(false);
   const [sideTab, setSideTab] = useState<"ai" | "technicals" | "objects" | "alerts">("ai");
   const [brokersOpen, setBrokersOpen] = useState(false);
+  /**
+   * One panel at a time. Null means none — and when none is open the grid
+   * column does not exist at all, so the chart takes the whole width.
+   */
+  const [panel, setPanel] = useState<PanelId | null>("trade");
+  const [bottomOpen, setBottomOpen] = useState(true);
+  const [quickTrade, setQuickTrade] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
+  const workspace = useRef<HTMLDivElement>(null);
+
+  /**
+   * True fullscreen via the browser API rather than a CSS class, so the
+   * page chrome genuinely disappears. The chart's own ResizeObserver
+   * picks up the new size, so nothing needs to be told to redraw.
+   *
+   * The state follows the DOM rather than the click: Escape exits
+   * fullscreen without going through our button, and a flag that only
+   * tracked clicks would then be wrong.
+   */
+  useEffect(() => {
+    const sync = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    } else {
+      void workspace.current?.requestFullscreen().catch(() => {});
+    }
+  }, []);
   const [strategiesOpen, setStrategiesOpen] = useState(false);
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
@@ -241,7 +306,6 @@ export function TradingWorkspace({
   }, [loadAccount, loadBars, loadSessions]);
 
   const price = account?.market_price ?? null;
-  const spread = price ? price.ask - price.bid : null;
 
   const parsedVolume = Number.parseFloat(volume);
   const parsedSl = stopLoss.trim() ? Number.parseFloat(stopLoss) : null;
@@ -463,12 +527,38 @@ export function TradingWorkspace({
   const canOpen = account?.can_open ?? false;
 
   return (
-    <div className="jg-ws">
-      {/* ------------------------------------------------------- toolbar */}
-      <header className="jg-ws-top">
-        <Brand size={22} />
+    <div className={fullscreen ? "jg-ws fullscreen" : "jg-ws"} ref={workspace}>
+      {/* ---------------------------------------------- global header */}
+      <header className="jg-ws-head">
+        <Brand size={20} />
         <span className="jg-ws-mode">J GOLD AI DEMO</span>
 
+        <div className="jg-head-price">
+          <strong>{symbol}</strong>
+          <span className="jg-head-last">
+            {price ? price.ask.toFixed(instrument?.digits ?? 2) : "—"}
+          </span>
+          <span className="jg-head-spread">
+            {price ? `spread ${(price.ask - price.bid).toFixed(2)}` : "no feed"}
+          </span>
+        </div>
+
+        <div className="jg-spacer" />
+
+        <LanguagePicker />
+        {onOpenOverview && (
+          <button type="button" className="btn sm" onClick={onOpenOverview}
+                  title="Account overview and summaries">
+            Overview
+          </button>
+        )}
+        <button type="button" className="btn sm" onClick={onLogout}>
+          {t("nav.signOut")}
+        </button>
+      </header>
+
+      {/* ------------------------------------------------ chart toolbar */}
+      <div className="jg-ws-top">
         <button
           type="button"
           className="btn sm"
@@ -568,48 +658,30 @@ export function TradingWorkspace({
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           {t("workspace.resetDemo")}
         </button>
-        {onOpenOverview && (
-          <button type="button" className="btn sm" onClick={onOpenOverview}
-                  title="Account overview and summaries">
-            Overview
-          </button>
-        )}
-        <LanguagePicker />
-        <button type="button" className="btn sm" onClick={onLogout}>
-          {t("nav.signOut")}
+        <button
+          type="button"
+          className={bottomOpen ? "btn sm active" : "btn sm"}
+          onClick={() => setBottomOpen((v) => !v)}
+          title="Show or hide the positions panel"
+        >
+          Panel
         </button>
-      </header>
-
-      {/* ------------------------------------------------------- metrics */}
-      <div className="jg-ws-metrics">
-        <Metric label={t("account.balance")} value={money(acct?.balance, acct?.currency)} />
-        <Metric label={t("account.equity")} value={money(acct?.equity, acct?.currency)} />
-        <Metric label={t("account.freeMargin")} value={money(acct?.free_margin, acct?.currency)} />
-        <Metric
-          label={t("account.floatingPnl")}
-          value={money(acct?.floating_pnl, acct?.currency)}
-          tone={pnlClass(acct?.floating_pnl)}
-        />
-        <Metric
-          label={t("account.realisedPnl")}
-          value={money(acct?.realized_pnl, acct?.currency)}
-          tone={pnlClass(acct?.realized_pnl)}
-        />
-        <Metric
-          label="Sessions open"
-          value={
-            sessionMap?.active.length
-              ? sessionMap.active.map((a) => a.display_name).join(", ")
-              : showSessions || showPrevLevels
-                ? "None"
-                : "—"
-          }
-        />
-        <Metric
-          label="Market"
-          value={price ? `${price.bid.toFixed(2)} / ${price.ask.toFixed(2)}` : "—"}
-          sub={spread != null ? `spread ${spread.toFixed(2)}` : undefined}
-        />
+        <button
+          type="button"
+          className={quickTrade ? "btn sm active" : "btn sm"}
+          onClick={() => setQuickTrade((v) => !v)}
+          title="Show or hide the quick trade control"
+        >
+          Quick trade
+        </button>
+        <button
+          type="button"
+          className="btn sm"
+          onClick={toggleFullscreen}
+          title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
+        >
+          {fullscreen ? "Exit full" : "Fullscreen"}
+        </button>
       </div>
 
       {notice && (
@@ -681,12 +753,30 @@ export function TradingWorkspace({
             </div>
           ) : (
             <div className="jg-chart-stack">
+              {quickTrade && (
+                <QuickTrade
+                  instrument={instrument}
+                  bid={price?.bid ?? null}
+                  ask={price?.ask ?? null}
+                  volume={volume}
+                  onVolume={setVolume}
+                  side={side}
+                  onSide={setSide}
+                  stopLoss={stopLoss}
+                  takeProfit={takeProfit}
+                  onStopLoss={setStopLoss}
+                  onTakeProfit={setTakeProfit}
+                  onPlace={() => setConfirming(true)}
+                  disabled={!canOpen || pendingOrder}
+                  disabledReason={account?.blocked_reason ?? null}
+                  onHide={() => setQuickTrade(false)}
+                />
+              )}
               <TradingChart
                 bars={bars}
               markers={markers}
               priceLines={chartLines}
                 overlays={overlays}
-                height={460}
                 onCoordinates={setCoords}
                 onVisibleRangeChange={setPaneRange}
               />
@@ -744,8 +834,16 @@ export function TradingWorkspace({
           )}
         </section>
 
+        {panel === "trade" && (
         <aside className="jg-ws-ticket">
-          <h3>{t("ticket.title")}</h3>
+          <div className="jg-panel-head">
+            <h3>{t("ticket.title")}</h3>
+            <div className="jg-spacer" />
+            <button type="button" className="jg-panel-close"
+                    onClick={() => setPanel(null)}
+                    title="Close — the chart takes the space back"
+                    aria-label="Close order ticket">×</button>
+          </div>
           <p className="jg-ws-virtual">VIRTUAL MONEY — J Gold AI demo</p>
 
           <div className="jg-side-toggle">
@@ -906,10 +1004,111 @@ export function TradingWorkspace({
           />
           </div>
         </aside>
+        )}
+
+        {panel && panel !== "trade" && (
+          <RailPanel title={PANEL_TITLES[panel]} onClose={() => setPanel(null)}>
+            {panel === "watchlist" && (
+              <NotConfigured
+                what="Live watchlist quotes"
+                detail="Only XAUUSD has a live feed. Use Search markets to see every instrument and its status — nothing here will show a price the platform cannot source."
+              />
+            )}
+            {panel === "news" && (
+              <NotConfigured
+                what="News"
+                detail="No news provider is connected. Headlines will appear here once one is, and never before — invented headlines are the last thing anyone should trade on."
+              />
+            )}
+            {panel === "calendar" && (
+              <NotConfigured
+                what="Economic calendar"
+                detail="No calendar provider is connected. Event times and forecasts must come from a real source."
+              />
+            )}
+            {panel === "sentiment" && (
+              <NotConfigured
+                what="Community sentiment"
+                detail="Not enough J Gold AI customer activity to report an aggregate without exposing individuals. A percentage invented to fill this space would be worse than an empty panel."
+              />
+            )}
+            {panel === "screener" && (
+              <NotConfigured
+                what="Screener"
+                detail="A screener needs live prices across many instruments. With one live feed there is nothing to screen yet."
+              />
+            )}
+            {panel === "alerts" && <AlertsPanel symbol={symbol} />}
+            {panel === "objects" && (
+              <ObjectTree
+                drawings={draw.drawings}
+                symbol={symbol}
+                timeframe={timeframe}
+                selectedId={draw.selectedId}
+                onSelect={draw.setSelectedId}
+                onToggle={draw.toggle}
+                onDelete={draw.remove}
+              />
+            )}
+            {panel === "technicals" && (
+              <TechnicalSummary bars={bars} timeframe={timeframe} />
+            )}
+            {panel === "bot" && (
+              <BotPanel
+                account={account}
+                positions={account?.positions ?? []}
+                risk={risk}
+                onRiskChange={setRisk}
+              />
+            )}
+            {panel === "account" && (
+              <div className="jg-account-panel">
+                <p className="jg-ws-virtual">VIRTUAL MONEY — J Gold AI demo</p>
+                <dl className="jg-account-list">
+                  <div><dt>{t("account.balance")}</dt>
+                       <dd>{money(acct?.balance, acct?.currency)}</dd></div>
+                  <div><dt>{t("account.equity")}</dt>
+                       <dd>{money(acct?.equity, acct?.currency)}</dd></div>
+                  <div><dt>{t("account.freeMargin")}</dt>
+                       <dd>{money(acct?.free_margin, acct?.currency)}</dd></div>
+                  <div><dt>{t("account.floatingPnl")}</dt>
+                       <dd className={pnlClass(acct?.floating_pnl)}>
+                         {money(acct?.floating_pnl, acct?.currency)}</dd></div>
+                  <div><dt>{t("account.realisedPnl")}</dt>
+                       <dd className={pnlClass(acct?.realized_pnl)}>
+                         {money(acct?.realized_pnl, acct?.currency)}</dd></div>
+                  <div><dt>Open positions</dt>
+                       <dd>{acct?.open_positions ?? 0}</dd></div>
+                </dl>
+                <button type="button" className="btn sm"
+                        onClick={() => setResetting(true)}>
+                  {t("workspace.resetDemo")}
+                </button>
+              </div>
+            )}
+            {panel === "ai" && (
+              <p className="jg-cc-note">
+                The AI analysis panel is in the sidebar beside the order
+                ticket. Open Trade to reach it.
+              </p>
+            )}
+            {(panel === "data" || panel === "chat" || panel === "products" ||
+              panel === "help" || panel === "strategies" ||
+              panel === "brokers") && (
+              <p className="jg-cc-note">
+                Use the toolbar button for this — it opens as a full dialog
+                rather than a side panel.
+              </p>
+            )}
+          </RailPanel>
+        )}
+
+        <RightRail items={RAIL_ITEMS} active={panel}
+                   onToggle={(id) => setPanel(panel === id ? null : id)} />
       </div>
 
-      {/* ---------------------------------------------- positions / history */}
-      <section className="jg-ws-bottom">
+      {/* ------------------------------------------ positions / history */}
+      <section className="jg-ws-bottom" hidden={!bottomOpen}>
         <div className="jg-ws-tabs">
           <button
             type="button"
@@ -1148,22 +1347,3 @@ export function TradingWorkspace({
   );
 }
 
-function Metric({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: string;
-}) {
-  return (
-    <div className="jg-ws-metric">
-      <span className="jg-ws-metric-label">{label}</span>
-      <span className={`jg-ws-metric-value ${tone ?? ""}`}>{value}</span>
-      {sub && <span className="jg-ws-metric-sub">{sub}</span>}
-    </div>
-  );
-}

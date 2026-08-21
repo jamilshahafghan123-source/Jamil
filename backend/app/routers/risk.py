@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit
@@ -14,9 +15,11 @@ from ..deps import (
     rate_limit,
     require_platform_access,
 )
-from ..models import RiskSettings, TradingMode, User
+from ..models import DemoPosition, RiskSettings, TradingMode, User
 from ..schemas import BotToggleRequest, ModeChangeRequest, RiskSettingsIn, RiskSettingsOut
-from ..services import executor
+from ..services import bot_status as bot_status_service
+from ..services import executor, maintenance, safe_mode
+from ..services.mt5_client import mt5
 
 router = APIRouter(
     prefix="/api/risk",
@@ -183,3 +186,77 @@ async def clear_emergency_stop(
     await db.refresh(row)
     await audit.record(db, audit.EMERGENCY_STOP, {"cleared": True}, user.id)
     return _out(row)
+
+
+@router.get("/bot/status")
+async def bot_status(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """What the bot is genuinely doing (section 17).
+
+    Every input is an observation, not an assertion: the settings row,
+    the platform's maintenance and safe-mode state, whether the venue
+    needs a broker, and how many positions are actually open. Nothing
+    here reports RUNNING because a switch is on.
+    """
+    row = (
+        await db.execute(
+            select(RiskSettings).where(RiskSettings.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No risk settings")
+
+    maintenance_state = maintenance.current()
+
+    # The internal demo venue has no broker to lose, so a bridge outage is
+    # only the bot's problem when execution actually goes to one.
+    venue = getattr(row, "execution_venue", None)
+    venue_name = getattr(venue, "value", venue) or "MT5_BRIDGE"
+    uses_broker = venue_name != "JGOLD_DEMO"
+
+    market_data_ok = True
+    broker_connected = True
+    safe_state = None
+    if uses_broker:
+        try:
+            health = await mt5.health()
+            broker_connected = bool(health.get("connected"))
+            market_data_ok = broker_connected
+        except Exception:
+            # An unreachable bridge is a reportable state, not a 500.
+            broker_connected = False
+            market_data_ok = False
+        safe_state = safe_mode.evaluate(
+            bridge_connected=broker_connected, last_tick_at=None
+        )
+
+    open_positions = (
+        await db.execute(
+            select(func.count(DemoPosition.id)).where(
+                DemoPosition.user_id == user.id,
+                DemoPosition.closed_at.is_(None),
+            )
+        )
+    ).scalar() or 0
+
+    result = bot_status_service.derive(
+        bot_enabled=row.bot_enabled,
+        emergency_stop=row.emergency_stop,
+        trading_mode=row.trading_mode.value,
+        safe_mode_active=bool(safe_state and safe_state.blocks_automated_trading),
+        safe_mode_reason=getattr(safe_state, "reason", "") or "",
+        maintenance_active=maintenance_state.blocks_automated_trading,
+        maintenance_reason=getattr(maintenance_state, "reason", "") or "",
+        market_data_ok=market_data_ok,
+        broker_connected=broker_connected,
+        venue_requires_broker=uses_broker,
+        open_positions=int(open_positions),
+    )
+    payload = result.as_dict()
+    payload["bot_enabled"] = row.bot_enabled
+    payload["trading_mode"] = row.trading_mode.value
+    payload["venue"] = venue_name
+    payload["open_positions"] = int(open_positions)
+    return payload

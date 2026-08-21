@@ -2412,12 +2412,17 @@ th.right {
 
 .jg-ws-main {
   display: grid;
-  /* toolbar | chart | ticket. The chart takes the slack; the rails size to
-     their content so neither steals width from it. */
-  grid-template-columns: auto minmax(0, 1fr) 300px;
-  gap: 12px;
-  padding: 12px 14px;
-  align-items: start;
+  /* draw rail | chart | (panel, only when open) | icon rail.
+     `auto` on the panel column means a closed panel contributes NOTHING —
+     the column collapses and the chart takes the width back. Reserving a
+     fixed column "just in case" is exactly how a trading screen ends up
+     with a small chart. */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  padding: 8px 10px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 .jg-ws-chart {
   background: var(--bg-raised);
@@ -3542,3 +3547,391 @@ th.right {
    never clutter the chart or imply an edit that would be refused. */
 .jg-draw-handle { cursor: grab; }
 .jg-draw-handle:active { cursor: grabbing; }
+
+/* ================================================================
+   TRADING WORKSPACE SHELL — chart-first layout
+   ================================================================
+   The chart is the product. Everything else is either compact and
+   permanent (the two rails) or entirely absent until asked for (the
+   panels). With all panels closed the chart has the full width and
+   height of the workspace. */
+
+.jg-ws {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* True fullscreen: the browser element fills the viewport, the page
+   chrome is genuinely gone, and the chart's ResizeObserver picks up the
+   new size on its own. */
+.jg-ws.fullscreen {
+  height: 100vh;
+  background: var(--bg-0, #0b0d11);
+}
+.jg-ws.fullscreen .jg-ws-main { padding: 6px 8px; }
+
+/* ---- right icon rail ------------------------------------------------ */
+.jg-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px;
+  border-inline-start: 1px solid var(--line, #23262d);
+  align-self: stretch;
+}
+.jg-rail-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted, #8b93a1);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.jg-rail-btn:hover { background: rgba(255, 255, 255, 0.05); color: inherit; }
+.jg-rail-btn.active {
+  background: rgba(217, 164, 65, 0.14);
+  color: var(--gold, #d9a441);
+}
+.jg-rail-glyph { pointer-events: none; }
+.jg-rail-badge {
+  position: absolute;
+  top: 2px;
+  inset-inline-end: 2px;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--gold, #d9a441);
+  color: #0b0d11;
+  font-size: 8px;
+  line-height: 14px;
+  font-weight: 700;
+}
+
+/* ---- the one open panel --------------------------------------------- */
+.jg-panel {
+  width: 288px;
+  max-width: 34vw;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 9px;
+  background: var(--bg-1, #14161b);
+  overflow: hidden;
+}
+.jg-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line, #23262d);
+}
+.jg-panel-head h3 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-panel-close {
+  border: 0;
+  background: none;
+  color: var(--muted, #8b93a1);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.jg-panel-close:hover { color: #f4564a; }
+.jg-panel-body { padding: 10px; overflow-y: auto; flex: 1; min-height: 0; }
+
+/* The order ticket is a panel like any other now. */
+.jg-ws-ticket {
+  width: 288px;
+  max-width: 34vw;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 9px;
+  background: var(--bg-1, #14161b);
+  padding: 0 10px 10px;
+  overflow-y: auto;
+}
+.jg-ws-ticket .jg-panel-head { margin: 0 -10px 8px; }
+
+/* ---- honest empty panels -------------------------------------------- */
+.jg-not-configured { padding: 14px 4px; }
+.jg-not-configured-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--gold, #d9a441);
+}
+.jg-not-configured-detail {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--muted, #8b93a1);
+}
+
+/* ---- compact quick trade over the chart ------------------------------ */
+.jg-quick {
+  position: absolute;
+  top: 44px;
+  inset-inline-start: 10px;
+  z-index: 5;
+  width: 210px;
+  padding: 8px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 9px;
+  background: rgba(15, 17, 21, 0.94);
+  backdrop-filter: blur(3px);
+}
+.jg-quick-prices { display: flex; align-items: stretch; gap: 4px; }
+.jg-quick-side {
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  padding: 5px 6px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+.jg-quick-side.sell { border-color: rgba(244, 86, 74, 0.45); }
+.jg-quick-side.buy { border-color: rgba(63, 145, 80, 0.5); }
+.jg-quick-side.sell.active { background: rgba(244, 86, 74, 0.16); }
+.jg-quick-side.buy.active { background: rgba(63, 145, 80, 0.18); }
+.jg-quick-price { font-size: 13px; font-variant-numeric: tabular-nums; }
+.jg-quick-tag {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: var(--muted, #8b93a1);
+}
+.jg-quick-side.sell .jg-quick-tag { color: #f4564a; }
+.jg-quick-side.buy .jg-quick-tag { color: #3fb950; }
+.jg-quick-spread {
+  align-self: center;
+  font-size: 9px;
+  color: var(--muted, #8b93a1);
+  font-variant-numeric: tabular-nums;
+}
+.jg-quick-hide {
+  border: 0; background: none; color: var(--muted, #8b93a1);
+  cursor: pointer; font-size: 13px; line-height: 1; padding: 0 1px;
+  align-self: flex-start;
+}
+.jg-quick-row { display: flex; gap: 5px; margin-top: 6px; }
+.jg-quick-field { flex: 1; min-width: 0; }
+.jg-quick-field > span {
+  display: block;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--muted, #8b93a1);
+  margin-bottom: 2px;
+}
+.jg-quick-field input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 5px;
+  background: var(--bg-2, #0f1115);
+  color: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.jg-quick-volume { display: flex; gap: 2px; }
+.jg-quick-volume input { text-align: center; }
+.jg-quick-volume button {
+  width: 22px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 5px;
+  background: var(--bg-2, #0f1115);
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.jg-quick-invalid {
+  margin: 6px 0 0;
+  font-size: 10px;
+  color: #f4564a;
+  line-height: 1.4;
+}
+.jg-quick-place {
+  width: 100%;
+  margin-top: 7px;
+  padding: 7px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  color: #0b0d11;
+}
+.jg-quick-place.buy { background: #3fb950; }
+.jg-quick-place.sell { background: #f4564a; }
+.jg-quick-place:disabled { opacity: 0.45; cursor: not-allowed; }
+.jg-quick-note {
+  margin: 5px 0 0;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+  text-align: center;
+}
+
+/* ---- bot panel ------------------------------------------------------- */
+.jg-bot-state {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 9px 10px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.jg-bot-state strong { font-size: 12px; display: block; }
+.jg-bot-state p {
+  margin: 3px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted, #8b93a1);
+}
+.jg-bot-dot {
+  width: 8px; height: 8px; border-radius: 50%; margin-top: 4px;
+  background: var(--muted, #8b93a1); flex: none;
+}
+.jg-bot-state.active { border-color: rgba(63, 185, 80, 0.4); }
+.jg-bot-state.active .jg-bot-dot { background: #3fb950; }
+.jg-bot-state.ready .jg-bot-dot { background: #6aa9ff; }
+.jg-bot-state.warn { border-color: rgba(217, 164, 65, 0.45); }
+.jg-bot-state.warn .jg-bot-dot { background: #d9a441; }
+.jg-bot-state.danger { border-color: rgba(244, 86, 74, 0.5); }
+.jg-bot-state.danger .jg-bot-dot { background: #f4564a; }
+.jg-bot-controls { display: grid; gap: 8px; margin-bottom: 8px; }
+.jg-bot-mode {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-bot-mode select {
+  display: block; width: 100%; margin-top: 3px; padding: 6px 8px;
+  border: 1px solid var(--line, #23262d); border-radius: 6px;
+  background: var(--bg-2, #0f1115); color: inherit; font-size: 11px;
+  text-transform: none; letter-spacing: normal;
+}
+.jg-bot-note {
+  font-size: 10px; line-height: 1.6; color: var(--muted, #8b93a1);
+  margin: 8px 0;
+}
+.jg-bot-stats dl, .jg-account-list { margin: 0; }
+.jg-bot-stats dl > div, .jg-account-list > div {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+.jg-bot-stats dt, .jg-account-list dt { color: var(--muted, #8b93a1); }
+.jg-bot-stats dd, .jg-account-list dd {
+  margin: 0; font-variant-numeric: tabular-nums;
+}
+.jg-bot-positions { list-style: none; margin: 0; padding: 0; font-size: 11px; }
+.jg-bot-positions li {
+  display: flex; justify-content: space-between; gap: 8px; padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.jg-account-panel .btn { margin-top: 10px; }
+
+/* ---- mobile: rails and panels become drawers ------------------------- */
+@media (max-width: 900px) {
+  .jg-ws-main {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px;
+    padding: 4px;
+  }
+  /* The panel takes the screen rather than squeezing the chart into a
+     sliver beside it. */
+  .jg-panel, .jg-ws-ticket {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 60;
+    width: 100%;
+    max-width: 100%;
+    max-height: 72vh;
+    border-radius: 12px 12px 0 0;
+  }
+  .jg-rail { flex-direction: column; }
+  .jg-rail-btn { width: 30px; height: 30px; font-size: 12px; }
+  .jg-quick { width: 168px; top: 38px; }
+}
+
+/* ---- global header + chart toolbar ----------------------------------
+   Two slim rows rather than one wrapping block. A toolbar that wraps
+   costs the chart a whole row of height on a narrow screen, which is the
+   opposite of what a chart-first layout is for. */
+.jg-ws-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line, #23262d);
+  background: var(--bg-1, #14161b);
+  min-height: 40px;
+}
+.jg-head-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--line, #23262d);
+}
+.jg-head-price strong { font-size: 12px; letter-spacing: 0.04em; }
+.jg-head-last {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold, #d9a441);
+}
+.jg-head-spread { font-size: 9px; color: var(--muted, #8b93a1); }
+
+/* The chart toolbar scrolls sideways instead of wrapping, so it always
+   costs exactly one row. */
+.jg-ws-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line, #23262d);
+  min-height: 38px;
+}
+.jg-ws-top::-webkit-scrollbar { height: 4px; }
+.jg-ws-top > * { flex: none; }
+.jg-ws.fullscreen .jg-ws-head { min-height: 34px; padding: 4px 10px; }
+
+/* The bottom panel is compact and collapsible; closing it hands the
+   height straight back to the chart. */
+.jg-ws-bottom { max-height: 34vh; }
+
+/* The chart column fills its grid cell so the space a closed panel hands
+   back becomes chart, not padding. */
+.jg-ws-chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.jg-chart-stack {
+  position: relative;
+  flex: 1;
+  min-height: 260px;
+}
+.jg-chart-stack > div:first-child { height: 100%; }
