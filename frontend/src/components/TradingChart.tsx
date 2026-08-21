@@ -114,7 +114,7 @@ export function TradingChart({
   zones = [],
   markers = [],
   overlays = [],
-  height = 480,
+  height,
   onCoordinates,
   onVisibleRangeChange,
 }: {
@@ -123,6 +123,12 @@ export function TradingChart({
   zones?: ChartZone[];
   markers?: TradeMarker[];
   overlays?: OverlaySeries[];
+  /**
+   * Fixed pixel height. Omit it and the chart fills its host element and
+   * keeps filling it — which is what a chart-first workspace wants, since
+   * a constant here would leave the chart the same size whether a panel
+   * is open or the whole screen is.
+   */
   height?: number;
   onCoordinates?: (coords: ChartCoordinates | null) => void;
   /** Publishes the visible logical range so lower panes can follow it. */
@@ -146,7 +152,7 @@ export function TradingChart({
       // Height comes from the host element rather than a constant, so the
       // chart grows into the space a closed panel hands back instead of
       // staying a fixed-size card in a large empty area.
-      height: height ?? holder.current?.clientHeight ?? 460,
+      height: height ?? holder.current.clientHeight,
       layout: {
         background: { type: ColorType.Solid, color: "#0b0d10" },
         textColor: "#9aa3b0",

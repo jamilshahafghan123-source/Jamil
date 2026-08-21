@@ -649,16 +649,24 @@ export function TradingWorkspace({
 
         <div className="jg-spacer" />
 
-        <LanguagePicker />
-        {onOpenOverview && (
-          <button type="button" className="btn sm" onClick={onOpenOverview}
-                  title="Account overview and summaries">
-            Overview
+        {/* Account and navigation chrome, grouped so fullscreen can drop
+            it. None of it is a chart control: language, the overview page
+            and signing out are all things you leave the chart to do, and
+            in fullscreen they are just rows of price not being shown. The
+            demo badge and the live price stay — what account you are on
+            and what it costs are never the parts to hide. */}
+        <div className="jg-ws-head-account">
+          <LanguagePicker />
+          {onOpenOverview && (
+            <button type="button" className="btn sm" onClick={onOpenOverview}
+                    title="Account overview and summaries">
+              Overview
+            </button>
+          )}
+          <button type="button" className="btn sm" onClick={onLogout}>
+            {t("nav.signOut")}
           </button>
-        )}
-        <button type="button" className="btn sm" onClick={onLogout}>
-          {t("nav.signOut")}
-        </button>
+        </div>
       </header>
 
       {/* ------------------------------------------------ chart toolbar */}

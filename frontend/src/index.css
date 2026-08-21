@@ -3956,11 +3956,31 @@ th.right {
 }
 .jg-ws-top::-webkit-scrollbar { height: 4px; }
 .jg-ws-top > * { flex: none; }
-.jg-ws.fullscreen .jg-ws-head { min-height: 34px; padding: 4px 10px; }
+.jg-ws.fullscreen .jg-ws-head { min-height: 26px; padding: 2px 10px; }
+/* Fullscreen is a request for chart, so the account chrome goes and the
+   header keeps only what identifies the account and the price. */
+.jg-ws.fullscreen .jg-ws-head-account { display: none; }
+.jg-ws.fullscreen .jg-ws-head .brand-name { display: none; }
+.jg-ws-head-account { display: flex; align-items: center; gap: 6px; }
 
 /* The bottom panel is compact and collapsible; closing it hands the
    height straight back to the chart. */
 .jg-ws-bottom { max-height: 34vh; }
+
+/* Above the mobile breakpoint the workspace is a fixed-height terminal,
+   not a scrolling page: chart, rails and panels all live inside one
+   viewport and anything too long scrolls inside its own box.
+
+   The side ticket used to size the whole row by its own content, which at
+   1366x768 — the most common laptop screen there is — made the page 140px
+   taller than the screen and pushed part of the chart below the fold. A
+   trading screen you have to scroll to see the price on is not one. */
+@media (min-width: 901px) {
+  .jg-ws { height: 100vh; overflow: hidden; }
+  .jg-ws-main { grid-template-rows: minmax(0, 1fr); }
+  .jg-ws-ticket { min-height: 0; overflow-y: auto; }
+  .jg-ws-bottom { min-height: 0; overflow-y: auto; }
+}
 
 /* The chart column fills its grid cell so the space a closed panel hands
    back becomes chart, not padding. */
@@ -3974,7 +3994,19 @@ th.right {
   flex: 1;
   min-height: 260px;
 }
-.jg-chart-stack > div:first-child { height: 100%; }
+/* The chart element by name, not by position. `> div:first-child` used to
+   do this, and quietly stopped the day anything else was rendered above
+   the canvas — the style bar and the quick ticket are both divs, and both
+   sit before it — which left the chart at its 480px default inside a
+   container twice that tall.
+
+   Taken out of flow on purpose. The library writes a pixel height onto
+   its canvas, so an in-flow chart contributes that height back to the
+   container it was just measured against: the pair could only ever grow,
+   and leaving fullscreen left the page 8px taller than the viewport with
+   a scrollbar to match. Absolute means the stack's height comes from the
+   layout alone and the canvas simply follows it. */
+.jg-chart-stack > .jg-chart { position: absolute; inset: 0; }
 
 /* A nowrap flex row defaults to min-width:auto, so the toolbar's natural
    width pushes the whole page wider than the viewport instead of
