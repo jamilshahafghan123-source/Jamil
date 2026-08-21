@@ -17,6 +17,7 @@ from ..services import bot
 from ..services.indicators import TIMEFRAMES
 from ..services.mt5_client import BridgeError, mt5
 from ..services import replay as replay_service
+from ..services import resample
 from ..services import sessions as session_map
 
 router = APIRouter(
@@ -97,16 +98,42 @@ async def bars(
 ) -> dict:
     # TIMEFRAMES now covers every timeframe the MT5 bridge exposes
     # (M1 … D1), so the chart's timeframe buttons all resolve.
-    if timeframe not in TIMEFRAMES:
+    requested = timeframe.upper()
+    derived = resample.source_for(requested)
+
+    if derived is None and requested not in resample.NATIVE_MINUTES:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"timeframe must be one of {TIMEFRAMES}",
+            f"timeframe must be one of {resample.supported()}",
         )
+
     try:
+        if derived is None:
+            return {
+                "symbol": settings.SYMBOL,
+                "timeframe": requested,
+                "derived_from": None,
+                "bars": await mt5.bars(settings.SYMBOL, requested, count),
+            }
+
+        # A derived interval needs enough source bars to fill the same
+        # number of buckets, so the request is scaled up rather than
+        # returning a third of the history the caller asked for.
+        source, minutes = derived
+        per_bucket = minutes // resample.NATIVE_MINUTES[source]
+        source_bars = await mt5.bars(
+            settings.SYMBOL, source, min(count * per_bucket, 5000)
+        )
         return {
             "symbol": settings.SYMBOL,
-            "timeframe": timeframe,
-            "bars": await mt5.bars(settings.SYMBOL, timeframe, count),
+            "timeframe": requested,
+            "derived_from": source,
+            "derivation_note": (
+                f"{requested} is not served by the feed. These bars are "
+                f"aggregated from {per_bucket} {source} bars each, anchored "
+                f"to midnight UTC."
+            ),
+            "bars": resample.resample(source_bars, requested)[-count:],
         }
     except BridgeError as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"MT5 bridge: {e}")
@@ -164,3 +191,38 @@ async def replay_capabilities(_: User = Depends(current_user)) -> dict:
     of step with what the backend actually supports.
     """
     return replay_service.capabilities()
+
+
+@router.get("/timeframes")
+async def timeframes(_: User = Depends(current_user)) -> dict:
+    """Which chart intervals the platform can genuinely serve.
+
+    Split into native and derived so the selector can say where a bar came
+    from. Anything absent from both lists is unsupported and is not
+    offered — an interval the feed cannot produce is never approximated.
+    """
+    return {
+        "native": [
+            {"timeframe": tf, "minutes": minutes}
+            for tf, minutes in sorted(
+                resample.NATIVE_MINUTES.items(), key=lambda kv: kv[1]
+            )
+        ],
+        "derived": [
+            {
+                "timeframe": tf,
+                "minutes": minutes,
+                "source": source,
+                "note": (
+                    f"Aggregated from {minutes // resample.NATIVE_MINUTES[source]}"
+                    f" {source} bars, anchored to midnight UTC."
+                ),
+            }
+            for tf, (source, minutes) in resample.DERIVED.items()
+        ],
+        "unsupported_note": (
+            "Tick, second and range bars are not offered: the feed reports "
+            "completed candles, so they cannot be produced correctly and "
+            "will not be approximated."
+        ),
+    }

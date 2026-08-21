@@ -25,7 +25,9 @@ export interface Tick {
 }
 
 /** Timeframes the MT5 bridge understands. */
-export type Timeframe = "M1" | "M5" | "M15" | "M30" | "H1" | "H4" | "D1";
+export type Timeframe =
+  | "M1" | "M2" | "M3" | "M5" | "M10" | "M15" | "M30" | "M45"
+  | "H1" | "H2" | "H3" | "H4" | "D1";
 
 /** One OHLC candle, exactly as GET /api/analysis/bars returns it. */
 export interface Bar {

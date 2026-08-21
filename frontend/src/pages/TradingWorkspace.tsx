@@ -64,7 +64,45 @@ import type {
  * and none of the homepage's decorative treatment comes in here.
  */
 
-const TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+/**
+ * Chart intervals, in ascending duration.
+ *
+ * All but M45 are served natively by MT5. M45 has no native constant —
+ * 45 minutes does not divide an hour — but it divides a day exactly, so
+ * the backend aggregates it from three M15 bars anchored to midnight UTC
+ * and labels it as derived. Tick, second and range bars are deliberately
+ * absent: the feed reports completed candles, so they cannot be produced
+ * correctly and are not approximated.
+ */
+const TIMEFRAMES: Timeframe[] = [
+  "M1", "M2", "M3", "M5", "M10", "M15", "M30", "M45",
+  "H1", "H2", "H3", "H4", "D1",
+];
+
+/** Intervals the platform builds rather than receives. */
+const DERIVED_TIMEFRAMES = new Set<Timeframe>(["M45"]);
+
+/**
+ * Visible history range (section 8) — how much of the past is on screen,
+ * which is a different question from the candle interval. Each entry says
+ * how many bars that span needs, and the chart is asked to show that many.
+ */
+const RANGES: { id: string; label: string; days: number }[] = [
+  { id: "1D", label: "1D", days: 1 },
+  { id: "5D", label: "5D", days: 5 },
+  { id: "1M", label: "1M", days: 30 },
+  { id: "3M", label: "3M", days: 90 },
+  { id: "6M", label: "6M", days: 180 },
+  { id: "YTD", label: "YTD", days: 0 },
+  { id: "1Y", label: "1Y", days: 365 },
+  { id: "5Y", label: "5Y", days: 1825 },
+  { id: "ALL", label: "All", days: -1 },
+];
+
+const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
+  M1: 1, M2: 2, M3: 3, M5: 5, M10: 10, M15: 15, M30: 30, M45: 45,
+  H1: 60, H2: 120, H3: 180, H4: 240, D1: 1440,
+};
 
 /** Bars per timeframe. Enough for context without over-fetching. */
 const BAR_COUNT = 300;
@@ -168,6 +206,7 @@ export function TradingWorkspace({
   const [fullscreen, setFullscreen] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [hoverBar, setHoverBar] = useState<number | null>(null);
+  const [visibleRange, setVisibleRange] = useState<string>("1D");
   const workspace = useRef<HTMLDivElement>(null);
 
   /**
@@ -220,7 +259,16 @@ export function TradingWorkspace({
     barsRequest.current = controller;
     setLoadingBars(true);
     try {
-      const res = await api.bars(timeframe, BAR_COUNT, symbol, controller.signal);
+      const span = RANGES.find((r) => r.id === visibleRange);
+      const minutes = TIMEFRAME_MINUTES[timeframe] ?? 15;
+      const wanted = !span || span.days <= 0
+        ? BAR_COUNT
+        : Math.ceil((span.days * 1440) / minutes);
+      // 1000 is the backend's own ceiling. A longer span at a fine
+      // interval simply shows as much as the feed will serve, rather
+      // than failing the request outright.
+      const count = Math.max(60, Math.min(wanted, 1000));
+      const res = await api.bars(timeframe, count, symbol, controller.signal);
       setBars(res.bars);
       setBarsError(null);
     } catch (err) {
@@ -234,7 +282,7 @@ export function TradingWorkspace({
     } finally {
       if (!controller.signal.aborted) setLoadingBars(false);
     }
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, visibleRange]);
 
   /**
    * Session boxes and previous-period levels.
@@ -598,8 +646,32 @@ export function TradingWorkspace({
               type="button"
               className={tf === timeframe ? "jg-tf-btn active" : "jg-tf-btn"}
               onClick={() => setTimeframe(tf)}
+              title={DERIVED_TIMEFRAMES.has(tf)
+                ? `${tf} is aggregated from M15 bars, anchored to midnight UTC`
+                : `${tf} candles`}
             >
               {tf}
+              {DERIVED_TIMEFRAMES.has(tf) && (
+                <span className="jg-tf-derived" aria-hidden="true">*</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Visible history is a separate question from candle interval:
+            "the last month" and "15-minute candles" are both answers, to
+            different questions. Conflating them is a common and confusing
+            shortcut. */}
+        <div className="jg-tf jg-range" role="group" aria-label="Visible range">
+          {RANGES.map((range) => (
+            <button
+              key={range.id}
+              type="button"
+              className={range.id === visibleRange ? "jg-tf-btn active" : "jg-tf-btn"}
+              onClick={() => setVisibleRange(range.id)}
+              title={`Show about ${range.label} of history`}
+            >
+              {range.label}
             </button>
           ))}
         </div>

@@ -4105,3 +4105,18 @@ th.right {
   line-height: 1.5;
   color: var(--muted, #8b93a1);
 }
+
+/* The visible-range group is visually separated from the interval group,
+   because they answer different questions and merging them reads as one
+   long undifferentiated strip. */
+.jg-range {
+  margin-inline-start: 4px;
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--line, #23262d);
+}
+/* A derived interval carries a mark; its tooltip says where it came from. */
+.jg-tf-derived {
+  font-size: 8px;
+  vertical-align: super;
+  opacity: 0.7;
+}

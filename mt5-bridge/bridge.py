@@ -74,10 +74,17 @@ if not BRIDGE_TOKEN:
 
 TIMEFRAMES = {
     "M1": mt5.TIMEFRAME_M1,
+    # MT5 serves these natively, so they are passed through rather than
+    # aggregated — a native bar is always preferable to a derived one.
+    "M2": mt5.TIMEFRAME_M2,
+    "M3": mt5.TIMEFRAME_M3,
     "M5": mt5.TIMEFRAME_M5,
+    "M10": mt5.TIMEFRAME_M10,
     "M15": mt5.TIMEFRAME_M15,
     "M30": mt5.TIMEFRAME_M30,
     "H1": mt5.TIMEFRAME_H1,
+    "H2": mt5.TIMEFRAME_H2,
+    "H3": mt5.TIMEFRAME_H3,
     "H4": mt5.TIMEFRAME_H4,
     "D1": mt5.TIMEFRAME_D1,
 }
