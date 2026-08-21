@@ -1653,6 +1653,7 @@ export function TradingWorkspace({
         onClose={() => setStrategiesOpen(false)}
         symbol={symbol}
         timeframe={timeframe}
+        bars={bars}
       />
 
       <BrokerCentre open={brokersOpen} onClose={() => setBrokersOpen(false)} />

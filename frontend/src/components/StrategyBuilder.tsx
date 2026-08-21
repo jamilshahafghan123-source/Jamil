@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { BacktestPanel } from "./BacktestPanel";
 import type {
-  SavedStrategy, StrategyCondition, StrategyGroup, StrategyRule,
-  StrategyVocabulary,
+  Bar, SavedStrategy, StrategyCondition, StrategyGroup, StrategyRule,
+  StrategyVocabulary, Timeframe,
 } from "../lib/types";
 
 /**
@@ -56,11 +57,13 @@ function countConditions(node: StrategyRule): number {
     : 1;
 }
 
-export function StrategyBuilder({ open, onClose, symbol, timeframe }: {
+export function StrategyBuilder({ open, onClose, symbol, timeframe, bars }: {
   open: boolean;
   onClose: () => void;
   symbol: string;
   timeframe: string;
+  /** The loaded history, so backtest prerequisites are measured not assumed. */
+  bars: Bar[];
 }) {
   const [vocabulary, setVocabulary] = useState<StrategyVocabulary | null>(null);
   const [saved, setSaved] = useState<SavedStrategy[]>([]);
@@ -348,6 +351,12 @@ export function StrategyBuilder({ open, onClose, symbol, timeframe }: {
               </article>
             ))}
           </section>
+
+          {/* Backtesting belongs with the strategies it would test, and
+              its prerequisites belong beside the builder rather than in a
+              panel nobody opens until they expect a result. */}
+          <BacktestPanel bars={bars} symbol={symbol}
+                         timeframe={timeframe as Timeframe} />
         </div>
 
         <footer className="jg-symbol-foot">

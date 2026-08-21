@@ -4526,3 +4526,40 @@ th.right {
      candles, where it would cover the thing being styled. */
   .jg-stylebar { inset-inline-start: 4px; transform: none; max-width: calc(100% - 8px); }
 }
+
+/* ---- backtest prerequisites ------------------------------------------ */
+.jg-backtest {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #23262d);
+}
+.jg-backtest-status {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(244, 86, 74, 0.45);
+  border-radius: 6px;
+  background: rgba(244, 86, 74, 0.08);
+  color: #f4564a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+.jg-backtest-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.jg-backtest-list li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 7px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+.jg-backtest-list li.ready .jg-backtest-mark { color: #3fb950; }
+.jg-backtest-list li.missing .jg-backtest-mark { color: #f4564a; }
+.jg-backtest-mark { font-weight: 700; line-height: 1.5; }
+.jg-backtest-list p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--muted, #8b93a1);
+}
