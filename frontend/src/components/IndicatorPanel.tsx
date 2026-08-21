@@ -3,24 +3,31 @@ import {
   DEFAULT_PERIOD,
   INDICATOR_GROUP,
   INDICATOR_LABEL,
+  accumulationDistribution,
   adx,
   atr,
+  cmf,
   bollinger,
   cci,
   donchian,
   ema,
   hma,
+  ichimoku,
   keltner,
+  maRibbon,
   mfi,
   obv,
+  parabolicSAR,
   roc,
   isOverlay,
   latest,
   macd,
   rsi,
+  rsiSeries,
   sma,
   standardDeviation,
   stochastic,
+  stochasticRSI,
   supertrend,
   tickVolume,
   tickVolumeAverage,
@@ -28,6 +35,7 @@ import {
   vwma,
   williamsR,
   wma,
+  type Series,
   type IndicatorConfig,
   type IndicatorKind,
 } from "../lib/indicators";
@@ -57,15 +65,17 @@ const PALETTE: Record<IndicatorKind, string> = {
   ROC: "#4ec9b0", WILLIAMS_R: "#c2708f", ADX: "#d9a441",
   ATR: "#9aa3b0", STDDEV: "#8b93a1",
   VOLUME: "#646d7c", OBV: "#5aa9a3", MFI: "#f4a15a",
+  PSAR: "#e0a3d0", ICHIMOKU: "#7fb3d5", MA_RIBBON: "#6aa9ff",
+  STOCH_RSI: "#b071e0", CMF: "#5aa9a3", AD_LINE: "#8ab4f8",
 };
 
 /** Everything the engine can compute, in library order. */
 const AVAILABLE: IndicatorKind[] = [
   "SMA", "EMA", "WMA", "HMA", "VWMA", "BOLLINGER", "DONCHIAN", "KELTNER",
-  "SUPERTREND",
-  "RSI", "MACD", "STOCHASTIC", "CCI", "ROC", "WILLIAMS_R", "ADX",
+  "SUPERTREND", "PSAR", "ICHIMOKU", "MA_RIBBON",
+  "RSI", "MACD", "STOCHASTIC", "STOCH_RSI", "CCI", "ROC", "WILLIAMS_R", "ADX",
   "ATR", "STDDEV",
-  "VOLUME", "OBV", "MFI", "VWAP",
+  "VOLUME", "OBV", "MFI", "CMF", "AD_LINE", "VWAP",
 ];
 
 /**
@@ -127,6 +137,26 @@ export function useIndicators(bars: Bar[]) {
         out.push({ id: config.id, label: `Supertrend ${config.period}`,
                    colour: config.colour,
                    values: supertrend(bars, config.period).line });
+      } else if (config.kind === "PSAR") {
+        out.push({ id: config.id, label: "Parabolic SAR",
+                   colour: config.colour, values: parabolicSAR(bars).sar });
+      } else if (config.kind === "MA_RIBBON") {
+        // One series per band, so the fan opens and closes visibly.
+        for (const band of maRibbon(bars)) {
+          out.push({ id: `${config.id}-${band.period}`,
+                     label: `EMA ${band.period}`, colour: config.colour,
+                     values: band.values });
+        }
+      } else if (config.kind === "ICHIMOKU") {
+        const cloud = ichimoku(bars, 9, config.period);
+        out.push({ id: `${config.id}-conv`, label: "Tenkan",
+                   colour: config.colour, values: cloud.conversion });
+        out.push({ id: `${config.id}-base`, label: "Kijun",
+                   colour: config.colour, values: cloud.base, dashed: true });
+        out.push({ id: `${config.id}-a`, label: "Senkou A",
+                   colour: config.colour, values: cloud.spanA, dashed: true });
+        out.push({ id: `${config.id}-b`, label: "Senkou B",
+                   colour: config.colour, values: cloud.spanB, dashed: true });
       } else if (config.kind === "BOLLINGER") {
         const bands = bollinger(bars, config.period);
         out.push({ id: `${config.id}-u`, label: "BB upper", colour: config.colour,
@@ -234,6 +264,29 @@ export function useIndicators(bars: Bar[]) {
           note: value == null ? "warming up"
             : value >= 80 ? "overbought" : value <= 20 ? "oversold" : "neutral",
         });
+      } else if (config.kind === "STOCH_RSI") {
+        const value = latest(stochasticRSI(bars, config.period).k);
+        out.push({
+          id: config.id, label: `Stoch RSI ${config.period}`,
+          value: value != null ? value.toFixed(1) : "—",
+          note: value == null ? "warming up"
+            : value >= 80 ? "overbought" : value <= 20 ? "oversold" : "neutral",
+        });
+      } else if (config.kind === "CMF") {
+        const value = latest(cmf(bars, config.period));
+        out.push({
+          id: config.id, label: `CMF ${config.period}`,
+          value: value != null ? value.toFixed(3) : "—",
+          note: value == null ? "warming up"
+            : value > 0 ? "accumulation" : value < 0 ? "distribution" : "flat",
+        });
+      } else if (config.kind === "AD_LINE") {
+        const value = latest(accumulationDistribution(bars));
+        out.push({
+          id: config.id, label: "Accum / Dist",
+          value: value != null ? Math.round(value).toLocaleString() : "—",
+          note: "cumulative flow",
+        });
       } else if (config.kind === "VOLUME") {
         const value = latest(tickVolume(bars));
         const average = latest(tickVolumeAverage(bars, config.period));
@@ -262,7 +315,98 @@ export function useIndicators(bars: Bar[]) {
     return out;
   }, [configs, bars]);
 
-  return { configs, setConfigs, overlays, readouts };
+  /**
+   * Lower panes (section 28).
+   *
+   * Only the indicators whose scale genuinely does not belong on the
+   * price axis get one — an RSI on a gold price scale is a flat line at
+   * the bottom of the chart, which is why it needs its own.
+   */
+  const panes = useMemo(() => {
+    const out: {
+      id: string; kind: IndicatorKind; title: string;
+      series: { id: string; label: string; colour: string;
+                values: Series; histogram?: boolean; dashed?: boolean }[];
+      guides: { value: number; colour?: string }[];
+    }[] = [];
+
+    for (const config of configs) {
+      if (!config.enabled) continue;
+      const c = config.colour;
+      if (config.kind === "RSI") {
+        out.push({
+          id: config.id, kind: config.kind, title: `RSI ${config.period}`,
+          series: [{ id: config.id, label: `RSI ${config.period}`, colour: c,
+                     values: rsiSeries(bars, config.period) }],
+          guides: [{ value: 70 }, { value: 30 }, { value: 50 }],
+        });
+      } else if (config.kind === "MACD") {
+        const result = macd(bars);
+        out.push({
+          id: config.id, kind: config.kind, title: "MACD",
+          series: [
+            { id: `${config.id}-h`, label: "histogram", colour: c,
+              values: result.histogram, histogram: true },
+            { id: `${config.id}-m`, label: "MACD", colour: "#6aa9ff",
+              values: result.macd },
+            { id: `${config.id}-s`, label: "signal", colour: "#d9a441",
+              values: result.signal, dashed: true },
+          ],
+          guides: [{ value: 0 }],
+        });
+      } else if (config.kind === "STOCHASTIC") {
+        const result = stochastic(bars, config.period);
+        out.push({
+          id: config.id, kind: config.kind, title: `Stochastic ${config.period}`,
+          series: [
+            { id: `${config.id}-k`, label: "%K", colour: c, values: result.k },
+            { id: `${config.id}-d`, label: "%D", colour: "#d9a441",
+              values: result.d, dashed: true },
+          ],
+          guides: [{ value: 80 }, { value: 20 }],
+        });
+      } else if (config.kind === "STOCH_RSI") {
+        const result = stochasticRSI(bars, config.period);
+        out.push({
+          id: config.id, kind: config.kind, title: `Stoch RSI ${config.period}`,
+          series: [
+            { id: `${config.id}-k`, label: "%K", colour: c, values: result.k },
+            { id: `${config.id}-d`, label: "%D", colour: "#d9a441",
+              values: result.d, dashed: true },
+          ],
+          guides: [{ value: 80 }, { value: 20 }],
+        });
+      } else if (config.kind === "ADX") {
+        const result = adx(bars, config.period);
+        out.push({
+          id: config.id, kind: config.kind, title: `ADX ${config.period}`,
+          series: [
+            { id: `${config.id}-a`, label: "ADX", colour: c, values: result.adx },
+            { id: `${config.id}-p`, label: "+DI", colour: "#3fb950",
+              values: result.plusDI },
+            { id: `${config.id}-m`, label: "-DI", colour: "#f4564a",
+              values: result.minusDI },
+          ],
+          guides: [{ value: 25 }],
+        });
+      } else if (config.kind === "VOLUME") {
+        out.push({
+          id: config.id, kind: config.kind, title: "Tick volume",
+          series: [
+            { id: `${config.id}-v`, label: "tick volume", colour: c,
+              values: tickVolume(bars), histogram: true },
+            { id: `${config.id}-a`, label: `average ${config.period}`,
+              colour: "#d9a441",
+              values: tickVolumeAverage(bars, config.period) },
+          ],
+          guides: [],
+        });
+      }
+    }
+    return out;
+  }, [configs, bars]);
+
+  return { configs, setConfigs, overlays, readouts, panes };
 }
 
 export function IndicatorPanel({

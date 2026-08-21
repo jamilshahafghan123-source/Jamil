@@ -7,6 +7,7 @@ import {
   LineStyle,
   type ISeriesApi,
   type LineData,
+  type LogicalRange,
   type SeriesMarker,
   type Time,
   createChart,
@@ -115,6 +116,7 @@ export function TradingChart({
   overlays = [],
   height = 480,
   onCoordinates,
+  onVisibleRangeChange,
 }: {
   bars: Bar[];
   priceLines?: PriceLine[];
@@ -123,6 +125,8 @@ export function TradingChart({
   overlays?: OverlaySeries[];
   height?: number;
   onCoordinates?: (coords: ChartCoordinates | null) => void;
+  /** Publishes the visible logical range so lower panes can follow it. */
+  onVisibleRangeChange?: (range: LogicalRange | null) => void;
 }) {
   const holder = useRef<HTMLDivElement | null>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -229,6 +233,12 @@ export function TradingChart({
     });
 
     instance.timeScale().subscribeVisibleLogicalRangeChange(notify);
+
+    // Lower panes follow this range. Published separately from `notify`
+    // so the overlay repaint and the pane sync stay independent.
+    const publishRange = (range: LogicalRange | null) =>
+      onVisibleRangeChange?.(range);
+    instance.timeScale().subscribeVisibleLogicalRangeChange(publishRange);
 
     const resize = () => {
       if (holder.current) {

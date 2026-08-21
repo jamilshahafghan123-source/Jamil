@@ -20,6 +20,8 @@ import { ObjectTree } from "../components/ObjectTree";
 import { StrategyBuilder } from "../components/StrategyBuilder";
 import { OpportunityLog } from "../components/OpportunityLog";
 import { AlertsPanel } from "../components/AlertsPanel";
+import { IndicatorPane } from "../components/IndicatorPane";
+import type { LogicalRange } from "lightweight-charts";
 import { useLanguage } from "../i18n/useLanguage";
 import {
   AIOverlayLayer,
@@ -123,12 +125,18 @@ export function TradingWorkspace({
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
-  const { configs, setConfigs, overlays, readouts } = useIndicators(bars);
+  const { configs, setConfigs, overlays, readouts, panes } = useIndicators(bars);
 
   // Customer drawings. Scoped to symbol AND timeframe, reloaded on either
   // change, and entirely separate from the AI overlays above.
   const [tool, setTool] = useState<DrawingKind | "CURSOR">("CURSOR");
   const [coords, setCoords] = useState<ChartCoordinates | null>(null);
+  /**
+   * Shared visible range for the lower panes. Whoever moves publishes it
+   * and the others follow, so the panes stay aligned with the candles
+   * above them through every zoom and pan.
+   */
+  const [paneRange, setPaneRange] = useState<LogicalRange | null>(null);
   const draw = useDrawings(symbol, timeframe);
 
   // One in-flight bars request at a time; a timeframe click mid-flight must
@@ -680,6 +688,7 @@ export function TradingWorkspace({
                 overlays={overlays}
                 height={460}
                 onCoordinates={setCoords}
+                onVisibleRangeChange={setPaneRange}
               />
               <SessionLayer
                 coords={coords}
@@ -704,6 +713,24 @@ export function TradingWorkspace({
               />
             </div>
           )}
+
+          {/* Lower panes: oscillators and volume, each with its own scale.
+              lightweight-charts 4.x has no multi-pane API, so each is its
+              own small chart kept in step with the main one. */}
+          {panes.map((pane) => (
+            <IndicatorPane
+              key={pane.id}
+              bars={bars}
+              title={pane.title}
+              series={pane.series}
+              guides={pane.guides}
+              externalRange={paneRange}
+              onRangeChange={setPaneRange}
+              onRemove={() =>
+                setConfigs((current) => current.filter((c) => c.id !== pane.id))}
+            />
+          ))}
+
           {readouts.length > 0 && (
             <div className="jg-ind-readouts">
               {readouts.map((r) => (

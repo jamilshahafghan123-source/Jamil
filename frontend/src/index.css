@@ -3502,3 +3502,38 @@ th.right {
   text-transform: uppercase;
   color: var(--muted, #8b93a1);
 }
+
+/* ------------------------------------------- lower indicator panes (§28)
+   lightweight-charts 4.x has no multi-pane API (addPane arrived in v5), so
+   each pane is its own small chart with its own price scale, kept in step
+   with the main chart's visible range. An RSI plotted on a gold price
+   scale is a flat line at the bottom of the chart, which is exactly why
+   these need separate scales rather than a shared one.
+
+   Known limitation: panes cannot be dragged to resize. */
+.jg-pane {
+  border-top: 1px solid var(--line, #23262d);
+  padding-top: 2px;
+}
+.jg-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 0;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.jg-pane-title { color: var(--muted, #8b93a1); font-weight: 600; }
+.jg-pane-key { letter-spacing: 0.04em; }
+.jg-pane-close {
+  border: 0;
+  background: none;
+  color: var(--muted, #8b93a1);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.jg-pane-close:hover { color: #f4564a; }
+.jg-pane-canvas { width: 100%; }

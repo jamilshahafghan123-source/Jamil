@@ -537,6 +537,202 @@ export function pivotPoints(bars: Bar[]): {
   };
 }
 
+/**
+ * Parabolic SAR.
+ *
+ * The acceleration factor steps only when a NEW extreme is made, and
+ * resets on a flip. Stepping it every bar — the common shortcut — makes
+ * the dots converge far too quickly and flips the trend on noise.
+ */
+export function parabolicSAR(bars: Bar[], step = 0.02, max = 0.2): {
+  sar: Series; rising: (boolean | null)[];
+} {
+  const sar: Series = new Array(bars.length).fill(null);
+  const rising: (boolean | null)[] = new Array(bars.length).fill(null);
+  if (bars.length < 3) return { sar, rising };
+
+  let up = bars[1].close >= bars[0].close;
+  let acceleration = step;
+  let extreme = up ? bars[1].high : bars[1].low;
+  let current = up ? bars[0].low : bars[0].high;
+
+  for (let i = 2; i < bars.length; i++) {
+    current = current + acceleration * (extreme - current);
+
+    // SAR may never enter the previous two bars' range.
+    if (up) {
+      current = Math.min(current, bars[i - 1].low, bars[i - 2].low);
+    } else {
+      current = Math.max(current, bars[i - 1].high, bars[i - 2].high);
+    }
+
+    const flipped = up ? bars[i].low < current : bars[i].high > current;
+    if (flipped) {
+      up = !up;
+      current = extreme;
+      extreme = up ? bars[i].high : bars[i].low;
+      acceleration = step;
+    } else if (up && bars[i].high > extreme) {
+      extreme = bars[i].high;
+      acceleration = Math.min(acceleration + step, max);
+    } else if (!up && bars[i].low < extreme) {
+      extreme = bars[i].low;
+      acceleration = Math.min(acceleration + step, max);
+    }
+
+    sar[i] = current;
+    rising[i] = up;
+  }
+  return { sar, rising };
+}
+
+/**
+ * Ichimoku Kinko Hyo.
+ *
+ * The two leading spans are returned UNSHIFTED, with `displacement` saying
+ * how far forward they belong. Shifting them here would silently align
+ * cloud values with the wrong bars; the caller that draws them knows how
+ * to offset, and one that only reads the latest value must not be handed
+ * a future value as if it were current.
+ */
+export function ichimoku(
+  bars: Bar[], conversion = 9, base = 26, spanB = 52,
+): {
+  conversion: Series; base: Series; spanA: Series; spanB: Series;
+  lagging: Series; displacement: number;
+} {
+  const midpoint = (period: number, index: number): number | null => {
+    if (index < period - 1) return null;
+    let high = -Infinity;
+    let low = Infinity;
+    for (let k = index - period + 1; k <= index; k++) {
+      high = Math.max(high, bars[k].high);
+      low = Math.min(low, bars[k].low);
+    }
+    return (high + low) / 2;
+  };
+
+  const conv: Series = bars.map((_, i) => midpoint(conversion, i));
+  const baseLine: Series = bars.map((_, i) => midpoint(base, i));
+  const spanA: Series = bars.map((_, i) =>
+    conv[i] != null && baseLine[i] != null
+      ? ((conv[i] as number) + (baseLine[i] as number)) / 2 : null);
+  const spanBLine: Series = bars.map((_, i) => midpoint(spanB, i));
+  // Chikou: today's close plotted `base` bars back.
+  const lagging: Series = bars.map((_, i) =>
+    i + base < bars.length ? bars[i + base].close : null);
+
+  return { conversion: conv, base: baseLine, spanA, spanB: spanBLine,
+           lagging, displacement: base };
+}
+
+/** Moving-average ribbon: several EMAs at once, for fan/compression reads. */
+export function maRibbon(
+  bars: Bar[], periods: number[] = [8, 13, 21, 34, 55, 89],
+): { period: number; values: Series }[] {
+  return periods.map((period) => ({ period, values: ema(bars, period) }));
+}
+
+/**
+ * Stochastic RSI: the stochastic formula applied to RSI, not to price.
+ *
+ * RSI has to be computed as a SERIES for this, which the scalar `rsi()`
+ * above does not provide — so it is computed here rather than by calling
+ * that function repeatedly over slices, which would be quadratic.
+ */
+export function rsiSeries(bars: Bar[], period = 14): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  if (bars.length <= period) return out;
+
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = bars[i].close - bars[i - 1].close;
+    if (change >= 0) gains += change;
+    else losses -= change;
+  }
+  let averageGain = gains / period;
+  let averageLoss = losses / period;
+  out[period] = averageLoss === 0 ? 100
+    : 100 - 100 / (1 + averageGain / averageLoss);
+
+  for (let i = period + 1; i < bars.length; i++) {
+    const change = bars[i].close - bars[i - 1].close;
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? -change : 0;
+    averageGain = (averageGain * (period - 1) + gain) / period;
+    averageLoss = (averageLoss * (period - 1) + loss) / period;
+    out[i] = averageLoss === 0 ? 100
+      : 100 - 100 / (1 + averageGain / averageLoss);
+  }
+  return out;
+}
+
+export function stochasticRSI(
+  bars: Bar[], rsiPeriod = 14, stochPeriod = 14, smooth = 3,
+): { k: Series; d: Series } {
+  const values = rsiSeries(bars, rsiPeriod);
+  const raw: Series = new Array(bars.length).fill(null);
+  for (let i = 0; i < bars.length; i++) {
+    const window = values.slice(Math.max(0, i - stochPeriod + 1), i + 1)
+      .filter((v): v is number => v != null);
+    if (window.length < stochPeriod) continue;
+    const high = Math.max(...window);
+    const low = Math.min(...window);
+    const current = values[i];
+    if (current == null) continue;
+    raw[i] = high === low ? 50 : ((current - low) / (high - low)) * 100;
+  }
+  const k: Series = new Array(bars.length).fill(null);
+  const d: Series = new Array(bars.length).fill(null);
+  const average = (series: Series, index: number, span: number) => {
+    const window = series.slice(Math.max(0, index - span + 1), index + 1)
+      .filter((v): v is number => v != null);
+    return window.length === span
+      ? window.reduce((a, b) => a + b, 0) / span : null;
+  };
+  for (let i = 0; i < bars.length; i++) k[i] = average(raw, i, smooth);
+  for (let i = 0; i < bars.length; i++) d[i] = average(k, i, smooth);
+  return { k, d };
+}
+
+/** Chaikin Money Flow: volume weighted by where the close sat in the bar. */
+export function cmf(bars: Bar[], period = 20): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  for (let i = period - 1; i < bars.length; i++) {
+    let flow = 0;
+    let volume = 0;
+    for (let k = i - period + 1; k <= i; k++) {
+      const bar = bars[k];
+      const range = bar.high - bar.low;
+      const v = bar.tick_volume ?? 0;
+      // A bar with no range has no meaningful position for its close, so
+      // it contributes volume but no directional flow.
+      const multiplier = range === 0
+        ? 0 : ((bar.close - bar.low) - (bar.high - bar.close)) / range;
+      flow += multiplier * v;
+      volume += v;
+    }
+    out[i] = volume === 0 ? 0 : flow / volume;
+  }
+  return out;
+}
+
+/** Accumulation/Distribution: the cumulative form of the same multiplier. */
+export function accumulationDistribution(bars: Bar[]): Series {
+  const out: Series = new Array(bars.length).fill(null);
+  let total = 0;
+  for (let i = 0; i < bars.length; i++) {
+    const bar = bars[i];
+    const range = bar.high - bar.low;
+    const multiplier = range === 0
+      ? 0 : ((bar.close - bar.low) - (bar.high - bar.close)) / range;
+    total += multiplier * (bar.tick_volume ?? 0);
+    out[i] = total;
+  }
+  return out;
+}
+
 export type IndicatorKind =
   | "SMA"
   | "EMA"
@@ -559,7 +755,13 @@ export type IndicatorKind =
   | "ADX"
   | "OBV"
   | "MFI"
-  | "STDDEV";
+  | "STDDEV"
+  | "PSAR"
+  | "ICHIMOKU"
+  | "MA_RIBBON"
+  | "STOCH_RSI"
+  | "CMF"
+  | "AD_LINE";
 
 export interface IndicatorConfig {
   id: string;
@@ -572,7 +774,7 @@ export interface IndicatorConfig {
 /** Which indicators draw on the price chart rather than reading out below. */
 export const OVERLAY_KINDS: IndicatorKind[] = [
   "SMA", "EMA", "WMA", "HMA", "VWMA", "BOLLINGER", "VWAP",
-  "DONCHIAN", "KELTNER", "SUPERTREND",
+  "DONCHIAN", "KELTNER", "SUPERTREND", "PSAR", "ICHIMOKU", "MA_RIBBON",
 ];
 
 export function isOverlay(kind: IndicatorKind): boolean {
@@ -602,6 +804,12 @@ export const DEFAULT_PERIOD: Record<IndicatorKind, number> = {
   OBV: 0,
   MFI: 14,
   STDDEV: 20,
+  PSAR: 0,
+  ICHIMOKU: 26,
+  MA_RIBBON: 0,
+  STOCH_RSI: 14,
+  CMF: 20,
+  AD_LINE: 0,
 };
 
 /** Which family each indicator belongs to, for the library UI (section 17). */
@@ -613,6 +821,8 @@ export const INDICATOR_GROUP: Record<IndicatorKind, string> = {
   CCI: "Momentum", ROC: "Momentum", WILLIAMS_R: "Momentum", ADX: "Momentum",
   ATR: "Volatility", STDDEV: "Volatility",
   VOLUME: "Volume", OBV: "Volume", MFI: "Volume", VWAP: "Volume",
+  PSAR: "Trend", ICHIMOKU: "Trend", MA_RIBBON: "Trend",
+  STOCH_RSI: "Momentum", CMF: "Volume", AD_LINE: "Volume",
 };
 
 /** Human labels, so the picker is not a wall of abbreviations. */
@@ -626,6 +836,9 @@ export const INDICATOR_LABEL: Record<IndicatorKind, string> = {
   ROC: "Rate of Change", WILLIAMS_R: "Williams %R", ADX: "ADX / DMI",
   ATR: "ATR", STDDEV: "Standard Deviation",
   VOLUME: "Tick Volume", OBV: "On-Balance Volume", MFI: "Money Flow Index",
+  PSAR: "Parabolic SAR", ICHIMOKU: "Ichimoku Cloud",
+  MA_RIBBON: "Moving Average Ribbon", STOCH_RSI: "Stochastic RSI",
+  CMF: "Chaikin Money Flow", AD_LINE: "Accumulation/Distribution",
 };
 
 /** Last non-null value of a series, for the readout strip. */
