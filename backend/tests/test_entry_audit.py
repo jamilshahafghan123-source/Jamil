@@ -392,3 +392,80 @@ def test_the_autonomous_path_always_supplies_a_grade():
         "telemetry.record_opportunity")[0]
     assert "return" in grading, \
         "a setup whose quality could not be assessed must not be traded"
+
+
+# ------------------------------------------------ the account's R:R rule
+
+
+def test_the_account_rr_applies_unless_the_class_is_stricter():
+    """min_rr 1.5 stands, except where the setup class demands more.
+
+    A scalp's own 1.1 must not pull the account's 1.5 down, and A+'s 2.0
+    must not be pulled down either. R:R tightens; it never loosens.
+    """
+    from app.services.opportunity import Regime, SetupClass, requirements_for
+
+    scalp = requirements_for(SetupClass.SCALP, account_min_rr=1.5)
+    assert scalp.min_rr == 1.5, "the class's easier 1.1 must not win"
+
+    standard = requirements_for(SetupClass.STANDARD, account_min_rr=1.5)
+    assert standard.min_rr == 1.5
+
+    a_plus = requirements_for(SetupClass.A_PLUS, account_min_rr=1.5)
+    assert a_plus.min_rr == 2.0, "the class's stricter 2.0 must win"
+
+    # And no regime can drop any of them below the account's number.
+    for setup_class in SetupClass:
+        for regime in list(Regime) + [None]:
+            requirement = requirements_for(
+                setup_class, regime, account_min_confidence=50,
+                account_min_rr=1.5)
+            assert requirement.min_rr >= 1.5, (setup_class, regime)
+
+
+# --------------------------------- replay and support cannot reach execution
+
+
+def test_no_support_or_chat_module_can_reach_the_execution_path():
+    """Support may read and recommend. It may not trade.
+
+    Checked by imports rather than by intent: a module that cannot reach
+    the executor cannot be talked into using it.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path("app/services/support")
+    assert root.is_dir()
+
+    banned = {"executor", "demo_execution", "risk_engine", "mt5_client",
+              "demo_engine"}
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                parts = set(node.module.split("."))
+                assert not (parts & banned), f"{path.name} imports {node.module}"
+                assert not ({a.name for a in node.names} & banned), \
+                    f"{path.name} imports from {node.module}"
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not (set(alias.name.split(".")) & banned), \
+                        f"{path.name} imports {alias.name}"
+
+
+def test_the_ask_route_never_calls_an_execution_function():
+    """The customer-facing chat route, specifically."""
+    import ast
+    import inspect
+
+    from app.routers import support as router
+
+    tree = ast.parse(inspect.getsource(router.ask))
+    called = {
+        node.func.attr for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    for forbidden in ("execute_signal", "open_position", "close_position",
+                      "close_all", "order_send", "evaluate_and_execute"):
+        assert forbidden not in called, forbidden
