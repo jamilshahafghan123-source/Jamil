@@ -2897,13 +2897,23 @@ th.right {
 }
 
 @media (max-width: 900px) {
-  /* Horizontal strip above the chart on narrow screens; a vertical rail
-     would eat the width the chart needs. */
+  /* A horizontal strip above the chart, scrolling sideways rather than
+     wrapping. Wrapping stacked seventeen tools into several rows and left
+     the chart with no height at all — the rail must cost one row, never
+     more. It spans the full grid width and sits above the chart. */
   .jg-draw-tools {
     flex-direction: row;
-    flex-wrap: wrap;
-    order: -1;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    max-width: 100%;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line, #23262d);
   }
+  .jg-draw-tools::-webkit-scrollbar { display: none; }
+  .jg-draw-tools > * { flex: none; }
 }
 
 /* ---------------------------------------------- global symbol search (§5,6)
@@ -3935,3 +3945,49 @@ th.right {
   min-height: 260px;
 }
 .jg-chart-stack > div:first-child { height: 100%; }
+
+/* A nowrap flex row defaults to min-width:auto, so the toolbar's natural
+   width pushes the whole page wider than the viewport instead of
+   scrolling inside itself. These make the scroll container actually
+   contain it. */
+.jg-ws-top { min-width: 0; }
+.jg-ws > * { min-width: 0; }
+.jg-ws-main { min-width: 0; }
+
+@media (max-width: 900px) {
+  /* Chart | draw rail | icon rail. The panel is a bottom sheet and is out
+     of flow, so it claims no column at all here. */
+  .jg-ws-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .jg-ws-chart { grid-column: 1; grid-row: 2; }
+  .jg-rail { grid-column: 2; grid-row: 2; border-inline-start: 0; }
+  .jg-chart-stack { min-height: 52vh; }
+}
+
+/* The workspace is a column flex container, so its children stretch to it
+   — but the container itself was being sized by its widest content, which
+   let the toolbar drag the whole page wider than the viewport. Pinning it
+   to the viewport is what makes the toolbar's own overflow-x actually
+   scroll instead of expand. */
+.jg-ws {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+.jg-ws-head {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.jg-ws-head::-webkit-scrollbar { display: none; }
+.jg-ws-head > * { flex: none; }
+
+@media (max-width: 640px) {
+  /* On a phone the price belongs on the chart, not in a header competing
+     for a 390px row. */
+  .jg-head-price { border: 0; padding-inline-start: 0; }
+  .jg-head-spread { display: none; }
+  .jg-ws-head { min-height: 34px; padding: 4px 8px; gap: 6px; }
+}
