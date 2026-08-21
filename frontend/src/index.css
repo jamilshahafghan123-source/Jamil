@@ -4289,6 +4289,40 @@ th.right {
   text-transform: uppercase;
   color: var(--muted, #8b93a1);
 }
+/* The candle's own numbers, two to a row. Twelve stacked rows pushed the
+   indicator and AI sections below the fold of a 300px panel. */
+.jg-data-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+  margin: 0 0 8px;
+}
+.jg-data-grid > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+.jg-data-grid dt { color: var(--muted, #8b93a1); white-space: nowrap; }
+.jg-data-grid dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.jg-data-grid dd.up { color: #3fb950; }
+.jg-data-grid dd.down { color: #f4564a; }
+/* The interpretation belongs with its label, not in a third column that
+   would push the number itself out of a narrow panel. */
+.jg-data-sub {
+  display: block;
+  font-size: 9px;
+  color: var(--text-faint, #6b7280);
+}
 .jg-data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .jg-data-table td { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
 .jg-data-table td:first-child { color: var(--muted, #8b93a1); }

@@ -267,7 +267,7 @@ export function TradingWorkspace({
   // returns an unchanged array recomputes nothing.
   // Indicators recompute on the replayed slice, so a study never shows a
   // value derived from candles the replay has not reached yet.
-  const { configs, setConfigs, overlays, readouts, panes } =
+  const { configs, setConfigs, overlays, readouts, readoutsAt, panes } =
     useIndicators(replayOn ? bars.slice(0, replayIndex + 1) : bars);
 
   // Customer drawings. Scoped to symbol AND timeframe, reloaded on either
@@ -1353,7 +1353,7 @@ export function TradingWorkspace({
                 hoverIndex={hoverBar}
                 timeframe={timeframe}
                 symbol={symbol}
-                readouts={readouts}
+                readouts={readoutsAt(hoverBar)}
                 analysis={analysis}
               />
             )}

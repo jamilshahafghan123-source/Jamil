@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_PERIOD,
   INDICATOR_GROUP,
@@ -166,6 +166,20 @@ export const SERIES_COLOURS: { hex: string; label: string }[] = [
 
 const COLOUR_BY_VALUE = new Set(SERIES_COLOURS.map((c) => c.hex));
 
+/**
+ * A series value at one candle.
+ *
+ * `null` index means "the latest", which is what the live strip wants.
+ * A real index returns exactly that candle's value — including null while
+ * the indicator is still warming up, because carrying an earlier value
+ * forward would report a number the indicator did not have yet.
+ */
+function valueAt(series: Series, index: number | null): number | null {
+  if (index == null) return latest(series);
+  if (index < 0 || index >= series.length) return null;
+  return series[index] ?? null;
+}
+
 let nextId = 1;
 
 const CONFIGS_KEY = "jgold.indicator.configs";
@@ -306,150 +320,181 @@ export function useIndicators(bars: Bar[]) {
     return out;
   }, [configs, bars]);
 
-  const readouts = useMemo(() => {
-    const out: { id: string; label: string; value: string; note: string }[] = [];
+  /**
+   * Oscillator readouts as SERIES rather than single values.
+   *
+   * Computing them once per (config, bars) and indexing in is what lets
+   * the Data Window report the value AT the hovered candle. It used to
+   * report the latest value whatever the pointer was over, and said so —
+   * an honest label on a panel that was answering a different question
+   * from the one being asked of it.
+   */
+  const readoutSeries = useMemo(() => {
+    const out: {
+      id: string;
+      label: string;
+      values: Series;
+      format: (value: number) => string;
+      describe: (value: number | null, index: number) => string;
+    }[] = [];
+
+    const band = (
+      high: number, low: number, above: string, below: string,
+    ) => (value: number | null) =>
+      value == null ? "warming up"
+        : value >= high ? above : value <= low ? below : "neutral";
+
     for (const config of configs) {
       if (!config.enabled || isOverlay(config.kind)) continue;
+      const one = config.period;
+
       if (config.kind === "RSI") {
-        const value = latest(rsi(bars, config.period));
         out.push({
-          id: config.id,
-          label: `RSI ${config.period}`,
-          value: value != null ? value.toFixed(1) : "—",
-          note:
-            value == null ? "warming up"
-              : value >= 70 ? "overbought"
-              : value <= 30 ? "oversold"
-              : "neutral",
+          id: config.id, label: `RSI ${one}`, values: rsi(bars, one),
+          format: (v) => v.toFixed(1),
+          describe: band(70, 30, "overbought", "oversold"),
         });
       } else if (config.kind === "MACD") {
-        const result = macd(bars);
-        const hist = latest(result.histogram);
         out.push({
-          id: config.id,
-          label: "MACD hist",
-          value: hist != null ? hist.toFixed(2) : "—",
-          note: hist == null ? "warming up" : hist > 0 ? "above signal" : "below signal",
+          id: config.id, label: "MACD hist", values: macd(bars).histogram,
+          format: (v) => v.toFixed(2),
+          describe: (v) => v == null ? "warming up"
+            : v > 0 ? "above signal" : "below signal",
         });
       } else if (config.kind === "STOCHASTIC") {
-        const result = stochastic(bars, config.period);
-        const k = latest(result.k);
         out.push({
-          id: config.id, label: `Stochastic ${config.period}`,
-          value: k != null ? k.toFixed(1) : "—",
-          note: k == null ? "warming up"
-            : k >= 80 ? "overbought" : k <= 20 ? "oversold" : "neutral",
+          id: config.id, label: `Stochastic ${one}`,
+          values: stochastic(bars, one).k,
+          format: (v) => v.toFixed(1),
+          describe: band(80, 20, "overbought", "oversold"),
         });
       } else if (config.kind === "CCI") {
-        const value = latest(cci(bars, config.period));
         out.push({
-          id: config.id, label: `CCI ${config.period}`,
-          value: value != null ? value.toFixed(1) : "—",
-          note: value == null ? "warming up"
-            : value >= 100 ? "above +100" : value <= -100 ? "below -100" : "in range",
+          id: config.id, label: `CCI ${one}`, values: cci(bars, one),
+          format: (v) => v.toFixed(1),
+          describe: band(100, -100, "above +100", "below -100"),
         });
       } else if (config.kind === "ROC") {
-        const value = latest(roc(bars, config.period));
         out.push({
-          id: config.id, label: `ROC ${config.period}`,
-          value: value != null ? `${value.toFixed(2)}%` : "—",
-          note: value == null ? "warming up" : value > 0 ? "rising" : "falling",
+          id: config.id, label: `ROC ${one}`, values: roc(bars, one),
+          format: (v) => `${v.toFixed(2)}%`,
+          describe: (v) => v == null ? "warming up"
+            : v > 0 ? "rising" : "falling",
         });
       } else if (config.kind === "WILLIAMS_R") {
-        const value = latest(williamsR(bars, config.period));
         out.push({
-          id: config.id, label: `Williams %R ${config.period}`,
-          value: value != null ? value.toFixed(1) : "—",
-          note: value == null ? "warming up"
-            : value >= -20 ? "overbought" : value <= -80 ? "oversold" : "neutral",
+          id: config.id, label: `Williams %R ${one}`,
+          values: williamsR(bars, one),
+          format: (v) => v.toFixed(1),
+          describe: band(-20, -80, "overbought", "oversold"),
         });
       } else if (config.kind === "ADX") {
-        const result = adx(bars, config.period);
-        const strength = latest(result.adx);
-        const plus = latest(result.plusDI);
-        const minus = latest(result.minusDI);
-        // ADX measures strength only; +DI/-DI carry the direction, so the
-        // note reports both rather than letting a number imply a side.
+        const result = adx(bars, one);
         out.push({
-          id: config.id, label: `ADX ${config.period}`,
-          value: strength != null ? strength.toFixed(1) : "—",
-          note: strength == null ? "warming up"
-            : `${strength >= 25 ? "trending" : "ranging"}` +
-              (plus != null && minus != null
-                ? ` · ${plus > minus ? "+DI" : "-DI"} leads` : ""),
+          id: config.id, label: `ADX ${one}`, values: result.adx,
+          format: (v) => v.toFixed(1),
+          // ADX measures strength only; +DI/-DI carry the direction, so
+          // the note reports both rather than letting a number imply a
+          // side. Both are read at the SAME candle as the value.
+          describe: (v, index) => {
+            if (v == null) return "warming up";
+            const plus = valueAt(result.plusDI, index);
+            const minus = valueAt(result.minusDI, index);
+            return `${v >= 25 ? "trending" : "ranging"}`
+              + (plus != null && minus != null
+                ? ` · ${plus > minus ? "+DI" : "-DI"} leads` : "");
+          },
         });
       } else if (config.kind === "STDDEV") {
-        const value = latest(standardDeviation(bars, config.period));
         out.push({
-          id: config.id, label: `Std dev ${config.period}`,
-          value: value != null ? value.toFixed(2) : "—",
-          note: "close dispersion",
+          id: config.id, label: `Std dev ${one}`,
+          values: standardDeviation(bars, one),
+          format: (v) => v.toFixed(2),
+          describe: () => "close dispersion",
         });
       } else if (config.kind === "OBV") {
-        const value = latest(obv(bars));
         out.push({
-          id: config.id, label: "On-balance volume",
-          value: value != null ? Math.round(value).toLocaleString() : "—",
-          note: "cumulative tick volume",
+          id: config.id, label: "On-balance volume", values: obv(bars),
+          format: (v) => Math.round(v).toLocaleString(),
+          describe: () => "cumulative tick volume",
         });
       } else if (config.kind === "MFI") {
-        const value = latest(mfi(bars, config.period));
         out.push({
-          id: config.id, label: `MFI ${config.period}`,
-          value: value != null ? value.toFixed(1) : "—",
-          note: value == null ? "warming up"
-            : value >= 80 ? "overbought" : value <= 20 ? "oversold" : "neutral",
+          id: config.id, label: `MFI ${one}`, values: mfi(bars, one),
+          format: (v) => v.toFixed(1),
+          describe: band(80, 20, "overbought", "oversold"),
         });
       } else if (config.kind === "STOCH_RSI") {
-        const value = latest(stochasticRSI(bars, config.period).k);
         out.push({
-          id: config.id, label: `Stoch RSI ${config.period}`,
-          value: value != null ? value.toFixed(1) : "—",
-          note: value == null ? "warming up"
-            : value >= 80 ? "overbought" : value <= 20 ? "oversold" : "neutral",
+          id: config.id, label: `Stoch RSI ${one}`,
+          values: stochasticRSI(bars, one).k,
+          format: (v) => v.toFixed(1),
+          describe: band(80, 20, "overbought", "oversold"),
         });
       } else if (config.kind === "CMF") {
-        const value = latest(cmf(bars, config.period));
         out.push({
-          id: config.id, label: `CMF ${config.period}`,
-          value: value != null ? value.toFixed(3) : "—",
-          note: value == null ? "warming up"
-            : value > 0 ? "accumulation" : value < 0 ? "distribution" : "flat",
+          id: config.id, label: `CMF ${one}`, values: cmf(bars, one),
+          format: (v) => v.toFixed(3),
+          describe: (v) => v == null ? "warming up"
+            : v > 0 ? "accumulation" : v < 0 ? "distribution" : "flat",
         });
       } else if (config.kind === "AD_LINE") {
-        const value = latest(accumulationDistribution(bars));
         out.push({
           id: config.id, label: "Accum / Dist",
-          value: value != null ? Math.round(value).toLocaleString() : "—",
-          note: "cumulative flow",
+          values: accumulationDistribution(bars),
+          format: (v) => Math.round(v).toLocaleString(),
+          describe: () => "cumulative flow",
         });
       } else if (config.kind === "VOLUME") {
-        const value = latest(tickVolume(bars));
-        const average = latest(tickVolumeAverage(bars, config.period));
-        // The ratio is the readable part; a bare tick count says little.
-        const ratio = value != null && average ? value / average : null;
+        const average = tickVolumeAverage(bars, one);
         out.push({
-          id: config.id,
-          label: `Tick volume (${config.period})`,
-          value: value != null ? Math.round(value).toLocaleString() : "—",
-          note:
-            ratio == null ? "warming up"
-              : ratio >= 1.5 ? `${ratio.toFixed(1)}x average — active`
+          id: config.id, label: `Tick volume (${one})`,
+          values: tickVolume(bars),
+          format: (v) => Math.round(v).toLocaleString(),
+          // The ratio is the readable part; a bare tick count says
+          // little. Both sides are read at the same candle.
+          describe: (v, index) => {
+            const mean = valueAt(average, index);
+            if (v == null || !mean) return "warming up";
+            const ratio = v / mean;
+            return ratio >= 1.5 ? `${ratio.toFixed(1)}x average — active`
               : ratio <= 0.5 ? `${ratio.toFixed(1)}x average — quiet`
-              : `${ratio.toFixed(1)}x average`,
+              : `${ratio.toFixed(1)}x average`;
+          },
         });
       } else if (config.kind === "ATR") {
-        const value = latest(atr(bars, config.period));
         out.push({
-          id: config.id,
-          label: `ATR ${config.period}`,
-          value: value != null ? value.toFixed(2) : "—",
-          note: "average true range",
+          id: config.id, label: `ATR ${one}`, values: atr(bars, one),
+          format: (v) => v.toFixed(2),
+          describe: () => "average true range",
         });
       }
     }
     return out;
   }, [configs, bars]);
+
+  /**
+   * Readouts at one candle — the hovered one, or the latest when nothing
+   * is hovered. The series are already computed, so this is an index
+   * lookup rather than a recalculation on every pointer move.
+   */
+  const readoutsAt = useCallback(
+    (index: number | null) =>
+      readoutSeries.map((entry) => {
+        const value = valueAt(entry.values, index);
+        return {
+          id: entry.id,
+          label: entry.label,
+          value: value != null ? entry.format(value) : "—",
+          note: entry.describe(
+            value, index ?? entry.values.length - 1,
+          ),
+        };
+      }),
+    [readoutSeries],
+  );
+
+  const readouts = useMemo(() => readoutsAt(null), [readoutsAt]);
 
   /**
    * Lower panes (section 28).
@@ -542,7 +587,7 @@ export function useIndicators(bars: Bar[]) {
     return out;
   }, [configs, bars]);
 
-  return { configs, setConfigs, overlays, readouts, panes };
+  return { configs, setConfigs, overlays, readouts, readoutsAt, panes };
 }
 
 export function IndicatorPanel({

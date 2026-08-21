@@ -19,7 +19,12 @@ export function DataWindow({
   hoverIndex: number | null;
   timeframe: string;
   symbol: string;
-  /** Live indicator readouts, already computed by the indicator hook. */
+  /**
+   * Indicator values AT the hovered candle, computed by the indicator
+   * hook. Reading them at the hovered bar is the whole point of the
+   * panel: a value taken from the end of the series while the pointer is
+   * two hundred candles back answers a question nobody asked.
+   */
   readouts: { id: string; label: string; value: string; note: string }[];
   analysis: Analysis | null;
 }) {
@@ -73,18 +78,19 @@ export function DataWindow({
         {hoverIndex == null ? "latest candle" : `candle ${index + 1} of ${bars.length}`}
       </p>
 
-      <table className="jg-data-table">
-        <tbody>
-          {rows.map(([label, value, tone]) => (
-            <tr key={label}>
-              <td>{label}</td>
-              <td className={tone ? `jg-data-value ${tone}` : "jg-data-value"}>
-                {value}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Two columns: twelve stacked rows pushed the indicator and AI
+          sections below the fold of a side panel, so the panel had all
+          the facts and showed a third of them at a time. */}
+      <dl className="jg-data-grid">
+        {rows.map(([label, value, tone]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd className={tone ? `jg-data-value ${tone}` : "jg-data-value"}>
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
       <p className="jg-data-note">
         Exchange volume is not available on this feed — the figure above
@@ -98,15 +104,18 @@ export function DataWindow({
             <tbody>
               {readouts.map((readout) => (
                 <tr key={readout.id}>
-                  <td>{readout.label}</td>
+                  <td>
+                    {readout.label}
+                    <span className="jg-data-sub">{readout.note}</span>
+                  </td>
                   <td className="jg-data-value">{readout.value}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="jg-data-note">
-            Indicator values are the latest on this series, not the value at
-            the hovered candle.
+            Read at the candle above. An indicator still warming up at that
+            point shows an em dash rather than a later value carried back.
           </p>
         </>
       )}
