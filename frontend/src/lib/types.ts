@@ -825,6 +825,8 @@ export interface OpportunityRow {
   rejection_reason: string | null;
   outcome_pnl: number | null;
   score_breakdown: Record<string, number>;
+  /** Refused as a repeat of a setup already traded (section 48). */
+  suppressed_as_duplicate: boolean;
 }
 
 export interface OpportunitySummary {
@@ -832,6 +834,7 @@ export interface OpportunitySummary {
   ai_proposed: number;
   ai_no_trade: number;
   risk_rejected: number;
+  suppressed_duplicates: number;
   executed: number;
   settled: number;
   wins: number;

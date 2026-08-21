@@ -60,6 +60,10 @@ def _row(log: OpportunityLog) -> dict:
         "rejection_reason": log.rejection_reason,
         "outcome_pnl": log.outcome_pnl,
         "score_breakdown": log.score_breakdown or {},
+        # Section 48. Without this a suppressed repeat reads as a
+        # detection that simply vanished: it has no risk ruling, because
+        # it never reached the risk engine.
+        "suppressed_as_duplicate": log.suppressed_as_duplicate,
     }
 
 
@@ -76,12 +80,17 @@ def _summarise(rows: list[OpportunityLog]) -> dict:
 
     rejected = [r for r in rows if r.risk_decision == "REJECTED"]
     no_trade = [r for r in rows if r.ai_decision == "NO_TRADE"]
+    # Counted separately from `risk_rejected` on purpose: these never
+    # reached the risk engine, and folding them in would overstate how
+    # much the risk manager refused.
+    duplicates = [r for r in rows if r.suppressed_as_duplicate]
 
     summary = {
         "detected": len(rows),
         "ai_proposed": len(rows) - len(no_trade),
         "ai_no_trade": len(no_trade),
         "risk_rejected": len(rejected),
+        "suppressed_duplicates": len(duplicates),
         "executed": len(executed),
         "settled": len(settled),
         "wins": len(wins),

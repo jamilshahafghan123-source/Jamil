@@ -18,6 +18,10 @@ import type { OpportunityFeed, OpportunityRow } from "../lib/types";
 
 function decisionTone(row: OpportunityRow): string {
   if (row.execution_result === "FILLED") return "filled";
+  // Checked before the generic execution branch: a suppressed repeat
+  // never reached execution, and colouring it as a failure would read as
+  // something going wrong when nothing did.
+  if (row.suppressed_as_duplicate) return "no-trade";
   if (row.execution_result) return "failed";
   if (row.risk_decision === "REJECTED") return "rejected";
   if (row.ai_decision === "NO_TRADE") return "no-trade";
@@ -27,6 +31,7 @@ function decisionTone(row: OpportunityRow): string {
 /** Which stage stopped this opportunity, in plain words. */
 function stoppedBy(row: OpportunityRow): string {
   if (row.execution_result === "FILLED") return "Executed";
+  if (row.suppressed_as_duplicate) return "Repeat of a setup already traded";
   if (row.execution_result) return `Execution: ${row.execution_result}`;
   if (row.risk_decision === "REJECTED") return "Risk manager";
   if (row.ai_decision === "NO_TRADE") return "AI declined";
@@ -78,6 +83,11 @@ export function OpportunityLog({ admin = false }: { admin?: boolean }) {
         <Stat label="Detected" value={s.detected} />
         <Stat label="AI declined" value={s.ai_no_trade} />
         <Stat label="AI proposed" value={s.ai_proposed} />
+        {/* Its own stage. These never reached the risk manager, so
+            folding them into "Risk rejected" would overstate how much it
+            refused — and leaving them out entirely turns the funnel into
+            a sum that does not add up. */}
+        <Stat label="Repeat suppressed" value={s.suppressed_duplicates} />
         <Stat label="Risk rejected" value={s.risk_rejected} />
         <Stat label="Executed" value={s.executed} />
         <Stat

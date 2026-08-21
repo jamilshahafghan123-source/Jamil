@@ -401,3 +401,34 @@ async def test_a_bot_cycle_writes_telemetry_fires_an_alert_and_executes(
         assert len(positions) == 1
         assert positions[0].opportunity_id == record.id, \
             "the position points back at the opportunity it came from"
+
+
+@pytest.mark.asyncio
+async def test_a_suppressed_repeat_is_its_own_stage_in_the_feed(env):
+    """Section 48 read back through section 49.
+
+    A repeat never reaches the risk manager, so it has no risk ruling. If
+    the feed could not say why it stopped, the funnel would show a
+    detection that simply vanished — and counting it under "risk
+    rejected" would overstate what the risk manager actually refused.
+    """
+    async with env["Session"]() as db:
+        db.add(_log(env["ids"]["alice"], ai_decision="BUY",
+                    risk_decision=None, execution_result="REJECTED",
+                    suppressed_as_duplicate=True,
+                    rejection_reason=("same STANDARD setup seen 3 min ago; "
+                                      "42 min of cooldown left")))
+        db.add(_log(env["ids"]["alice"], ai_decision="BUY",
+                    risk_decision="APPROVED", execution_result="FILLED"))
+        await db.commit()
+
+    feed = (await env["client"].get(
+        "/api/opportunities", headers=_h(env["tokens"]["alice"]))).json()
+    assert feed["summary"]["suppressed_duplicates"] == 1
+    assert feed["summary"]["risk_rejected"] == 0
+    assert feed["summary"]["executed"] == 1
+
+    rows = {r["execution_result"]: r for r in feed["opportunities"]}
+    assert rows["REJECTED"]["suppressed_as_duplicate"] is True
+    assert "cooldown" in rows["REJECTED"]["rejection_reason"]
+    assert rows["FILLED"]["suppressed_as_duplicate"] is False
