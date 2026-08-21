@@ -324,3 +324,100 @@ def test_the_bot_loop_pauses_opening_without_pausing_management():
     assert "_manage_profitable_positions" in body
     reversal = body.split("_manage_strong_reversal")[0]
     assert "if not may_open" not in reversal
+
+
+# ------------------------------------------- the 50% confidence policy
+
+
+@pytest.mark.asyncio
+async def test_a_fifty_percent_signal_reaches_a_demo_position(env):
+    """The stated policy, proved end to end.
+
+    At or above 50% a setup is ELIGIBLE — not forced. This asserts the
+    whole path: risk engine, sizing, execution, and a real DemoPosition
+    row with the money moved on the demo account.
+    """
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.min_confidence = 50
+        settings_row.min_rr = 1.5
+        signal = _signal(env["user"].id, confidence=50)
+        db.add(signal)
+        await db.flush()
+
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row, quote=Quote(bid=3000.0, ask=3000.2),
+        )
+        await db.commit()
+
+    assert result.executed is True, result.reasons
+    async with env["Session"]() as db:
+        positions = (await db.execute(select(DemoPosition))).scalars().all()
+    assert len(positions) == 1
+    assert positions[0].signal_confidence == 50
+    assert positions[0].source is TradeSource.AI_AUTO
+
+
+@pytest.mark.asyncio
+async def test_forty_nine_percent_is_refused(env):
+    """Below 50 there is no automatic entry, however it is configured."""
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.min_confidence = 50
+        signal = _signal(env["user"].id, confidence=49)
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row, quote=Quote(bid=3000.0, ask=3000.2),
+        )
+        await db.commit()
+    assert result.executed is False
+    assert any("confidence" in r.lower() for r in result.reasons)
+    async with env["Session"]() as db:
+        assert (await db.execute(select(DemoPosition))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_an_account_asking_for_below_fifty_still_gets_fifty(env):
+    """The floor is the platform's, not the account's, to lower."""
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.min_confidence = 10
+        signal = _signal(env["user"].id, confidence=30)
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row, quote=Quote(bid=3000.0, ask=3000.2),
+        )
+        await db.commit()
+    assert result.executed is False
+    assert any("50" in r for r in result.reasons), result.reasons
+
+
+@pytest.mark.asyncio
+async def test_fifty_percent_does_not_mean_force_a_trade(env):
+    """Eligible is not approved. Every other gate still rules.
+
+    Same 50% signal, but the risk/reward is too thin — it must still be
+    refused, and for the RR reason rather than the confidence one.
+    """
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.min_confidence = 50
+        settings_row.min_rr = 1.5
+        # Reward barely above risk: 3000 -> 3005 against a 2990 stop.
+        signal = _signal(env["user"].id, confidence=50, take_profit=3005.0)
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row, quote=Quote(bid=3000.0, ask=3000.2),
+        )
+        await db.commit()
+    assert result.executed is False
+    joined = " ".join(result.reasons).lower()
+    assert "risk/reward" in joined or "rr" in joined, result.reasons
+    assert "confidence" not in joined, result.reasons

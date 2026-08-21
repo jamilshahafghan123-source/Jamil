@@ -46,16 +46,50 @@ def test_no_class_or_regime_can_drop_below_the_absolute_floor():
                 assert requirement.max_spread_points <= O.ABSOLUTE_FLOOR.max_spread_points
 
 
-def test_account_settings_can_only_tighten():
-    loose = O.requirements_for(SetupClass.STANDARD, account_min_confidence=10,
+def test_the_account_owns_the_confidence_dimension():
+    """The number on the settings screen is the number that applies.
+
+    Confidence used to be a tightening only, so an account asking for 50
+    silently ran at the class requirement of 68 with nothing anywhere
+    saying so. A threshold the customer cannot see is not a safety
+    feature. It now moves in both directions, bounded below by the
+    platform's stated policy floor.
+    """
+    base = O.requirements_for(SetupClass.STANDARD)
+    assert base.min_confidence == 68, "the platform's own opinion, unchanged"
+
+    asked_for_50 = O.requirements_for(
+        SetupClass.STANDARD, account_min_confidence=50)
+    assert asked_for_50.min_confidence == 50
+
+    strict = O.requirements_for(SetupClass.STANDARD, account_min_confidence=88)
+    assert strict.min_confidence == 88
+
+
+def test_no_account_setting_can_buy_an_entry_below_the_policy_floor():
+    """Below 50% there is no automatic entry, whatever is configured."""
+    for value in (49, 10, 1, 0, -5):
+        for setup_class in SetupClass:
+            for regime in list(Regime) + [None]:
+                requirement = O.requirements_for(
+                    setup_class, regime, account_min_confidence=value)
+                assert requirement.min_confidence == 50
+
+
+def test_risk_reward_spread_and_grade_are_still_a_tightening_only():
+    """Relaxing confidence must not carry the other dimensions with it.
+
+    They are not the dimension being delegated to the account, so an
+    account may make the platform stricter on them and never looser.
+    """
+    loose = O.requirements_for(SetupClass.STANDARD, account_min_confidence=50,
                                account_min_rr=0.2)
     base = O.requirements_for(SetupClass.STANDARD)
-    assert loose.min_confidence == base.min_confidence
     assert loose.min_rr == base.min_rr
+    assert loose.max_spread_points == base.max_spread_points
+    assert loose.min_grade == base.min_grade
 
-    strict = O.requirements_for(SetupClass.STANDARD, account_min_confidence=88,
-                                account_min_rr=2.75)
-    assert strict.min_confidence == 88
+    strict = O.requirements_for(SetupClass.STANDARD, account_min_rr=2.75)
     assert strict.min_rr == 2.75
 
 

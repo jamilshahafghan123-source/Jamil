@@ -82,8 +82,16 @@ class Requirement:
 #: poor signals. No setup class, regime adjustment or admin setting can
 #: produce a requirement under these numbers — `requirements_for` clamps
 #: to them, and a test asserts every possible combination stays above.
+#:
+#: CONFIDENCE IS 50 BECAUSE THAT IS THE STATED PLATFORM POLICY: below 50%
+#: there is no automatic entry, at or above 50% a setup is ELIGIBLE if
+#: every other gate also passes. It was 55, which meant an account asking
+#: for 50 silently got 55 — a threshold nobody could see in their own
+#: settings. The other three numbers are unchanged: relaxing the
+#: confidence dimension is not a reason to relax risk/reward, spread or
+#: grade with it.
 ABSOLUTE_FLOOR = Requirement(
-    min_confidence=55,
+    min_confidence=50,
     min_rr=0.9,
     max_spread_points=60.0,
     min_grade=Grade.ACCEPTABLE,
@@ -133,11 +141,22 @@ def requirements_for(
 ) -> Requirement:
     """What this setup must prove, given its class and the regime.
 
-    The account's own settings are honoured as a TIGHTENING only: an
-    administrator who raises `min_confidence` to 85 gets 85 everywhere,
-    but one who lowers it to 10 does not get 10 — the class requirement
-    and the absolute floor both still apply. Settings may make this
-    platform stricter than its defaults and never more permissive.
+    CONFIDENCE is the one dimension the account owner sets directly, so
+    their number is AUTHORITATIVE: an account asking for 50 gets 50, one
+    asking for 85 gets 85, and the absolute floor of 50 is the only thing
+    below which it cannot go. The class and regime numbers below remain
+    the platform's own opinion and apply whenever the account has not
+    expressed one.
+
+    This used to be a tightening only, which meant an account set to 50
+    quietly ran at 68 — the class requirement — with nothing on the
+    settings screen saying so. A threshold the customer cannot see is not
+    a safety feature, it is a surprise.
+
+    RISK/REWARD, SPREAD and GRADE are still a TIGHTENING only. Those are
+    not the dimension being delegated, and an account may make the
+    platform stricter on them but never more permissive. Confidence
+    moving does not carry them with it.
     """
     base = BASE_REQUIREMENTS[setup_class]
     confidence_delta, rr_delta = REGIME_ADJUSTMENT.get(regime, (0, 0.0)) \
@@ -147,7 +166,7 @@ def requirements_for(
     rr = base.min_rr + rr_delta
 
     if account_min_confidence is not None:
-        confidence = max(confidence, int(account_min_confidence))
+        confidence = int(account_min_confidence)
     if account_min_rr is not None:
         rr = max(rr, float(account_min_rr))
 

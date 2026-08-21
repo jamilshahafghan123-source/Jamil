@@ -321,3 +321,72 @@ def test_should_halt_for_day():
     assert not risk_engine.should_halt_for_day(
         stats, s, equity=10_000.0, balance=10_000.0
     )
+
+
+# ------------------------------------------- the 50% confidence policy
+
+
+def _evaluate(confidence: int, regime: str | None = None, **over):
+    settings_row = make_settings(min_confidence=50, min_rr=1.5, **over)
+    return risk_engine.evaluate(
+        action="BUY",
+        entry=2500.30,
+        stop_loss=2490.30,
+        take_profit=2530.30,
+        confidence=confidence,
+        settings_row=settings_row,
+        account=DEMO_ACCOUNT,
+        symbol_info=SYMBOL_INFO,
+        tick=TICK,
+        open_positions=[],
+        stats=None,
+        server_allows_real=False,
+        regime=regime,
+    )
+
+
+def test_no_regime_raises_the_entry_floor_above_the_account_setting():
+    """The point of the audit: 50 must mean 50 in every market regime.
+
+    A regime adjustment that quietly demanded 56 in a quiet session would
+    be a threshold the customer cannot see on their own settings screen.
+    """
+    from app.services.opportunity import Regime
+
+    for regime in [r.value for r in Regime] + [None, "NONSENSE"]:
+        decision = _evaluate(50, regime)
+        assert decision.required_confidence == 50, regime
+        assert decision.approved is True, (regime, decision.reasons)
+
+
+def test_the_boundary_is_exact():
+    assert _evaluate(50).approved is True
+    blocked = _evaluate(49)
+    assert blocked.approved is False
+    assert any("confidence" in r.lower() for r in blocked.reasons)
+
+
+def test_eligible_is_not_approved():
+    """50% clears the confidence gate and nothing else.
+
+    Each of these is a different gate refusing the same 50% signal, which
+    is what "eligible when all other gates pass" has to mean.
+    """
+    wide_spread = _evaluate(50, max_spread_points=10)
+    assert wide_spread.approved is False
+    assert any("spread" in r.lower() for r in wide_spread.reasons)
+
+    stopped = _evaluate(50, emergency_stop=True)
+    assert stopped.approved is False
+    assert any("emergency" in r.lower() for r in stopped.reasons)
+
+    settings_row = make_settings(min_confidence=50, min_rr=1.5)
+    thin = risk_engine.evaluate(
+        action="BUY", entry=2500.30, stop_loss=2490.30, take_profit=2505.30,
+        confidence=50, settings_row=settings_row, account=DEMO_ACCOUNT,
+        symbol_info=SYMBOL_INFO, tick=TICK, open_positions=[], stats=None,
+        server_allows_real=False,
+    )
+    assert thin.approved is False
+    assert any("risk/reward" in r.lower() or "rr" in r.lower()
+               for r in thin.reasons)

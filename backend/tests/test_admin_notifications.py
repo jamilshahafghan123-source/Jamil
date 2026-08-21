@@ -284,11 +284,21 @@ async def test_bot_summary_pairs_each_gate_with_its_minimum(env):
     """Section 3: a waiting bot must read as waiting, not broken."""
     from app.models import Signal, SignalAction
 
+    from sqlalchemy import select
+
+    from app.models import RiskSettings
+
     client, admin = env["client"], _h(env["tokens"]["admin"])
     async with env["Session"]() as db:
         db.add(Signal(user_id=env["customer_id"], symbol="XAUUSD", action=SignalAction.NO_TRADE,
                       confidence=42, risk_reward=0.8, reason="structure unclear",
                       risk_approved=False, risk_reasons=["confidence below minimum"]))
+        # Set explicitly, so this proves the panel reads the OWNER'S number
+        # rather than happening to match whatever the model default is on
+        # the day.
+        owner = (await db.execute(select(RiskSettings).where(
+            RiskSettings.user_id == env["customer_id"]))).scalar_one()
+        owner.min_confidence = 66
         await db.commit()
 
     body = (await client.get("/api/admin/control-centre", headers=admin)).json()
@@ -297,7 +307,7 @@ async def test_bot_summary_pairs_each_gate_with_its_minimum(env):
     assert sig["confidence"] == 42
     assert sig["rr"] == 0.8
     # The minimums come from the signal owner's own risk settings.
-    assert sig["required_confidence"] == 70
+    assert sig["required_confidence"] == 66
     assert sig["required_rr"] == 1.5
     assert sig["risk_reasons"] == ["confidence below minimum"]
 

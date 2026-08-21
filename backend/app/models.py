@@ -118,7 +118,12 @@ class RiskSettings(Base):
     max_lot_size: Mapped[float] = mapped_column(Float, default=0.10)
 
     # Signal quality / execution filters
-    min_confidence: Mapped[int] = mapped_column(Integer, default=70)
+    #: 50 is the platform's stated entry policy: below it there is no
+    #: automatic entry, at or above it a setup is eligible when every
+    #: other gate also passes. It defaulted to 70, so an account that
+    #: never opened the settings screen ran 20 points stricter than the
+    #: policy it was told applied.
+    min_confidence: Mapped[int] = mapped_column(Integer, default=50)
     min_rr: Mapped[float] = mapped_column(Float, default=1.5)
     max_spread_points: Mapped[int] = mapped_column(Integer, default=50)
 
