@@ -243,6 +243,8 @@ export function TradingChart({
       onVisibleRangeChange?.(range);
     instance.timeScale().subscribeVisibleLogicalRangeChange(publishRange);
 
+
+
     const resize = () => {
       if (holder.current) {
         instance.applyOptions({

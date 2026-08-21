@@ -4084,3 +4084,24 @@ th.right {
   line-height: 1;
   padding: 0 1px;
 }
+
+/* ---- data window ------------------------------------------------------ */
+.jg-data-scope {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.jg-data-table td { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.jg-data-table td:first-child { color: var(--muted, #8b93a1); }
+.jg-data-value { text-align: right; font-variant-numeric: tabular-nums; }
+.jg-data-value.up { color: #3fb950; }
+.jg-data-value.down { color: #f4564a; }
+.jg-data-note {
+  margin: 6px 0 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted, #8b93a1);
+}

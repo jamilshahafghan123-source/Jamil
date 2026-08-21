@@ -25,6 +25,7 @@ import { AlertsPanel } from "../components/AlertsPanel";
 import { IndicatorPane } from "../components/IndicatorPane";
 import { BotPanel } from "../components/BotPanel";
 import { QuickTrade } from "../components/QuickTrade";
+import { DataWindow } from "../components/DataWindow";
 import {
   NotConfigured, RailPanel, RightRail, type PanelId, type RailItem,
 } from "../components/RightRail";
@@ -94,6 +95,7 @@ const RAIL_ITEMS: RailItem[] = [
   { id: "alerts", label: "Alerts", glyph: "\u25D4" },
   { id: "objects", label: "Object tree", glyph: "\u29C9" },
   { id: "technicals", label: "Technicals", glyph: "\u25A4" },
+  { id: "data", label: "Data window", glyph: "\u2637" },
   { id: "account", label: "Account", glyph: "$" },
   { id: "news", label: "News", glyph: "\u25A6" },
   { id: "calendar", label: "Calendar", glyph: "\u25A3" },
@@ -165,6 +167,7 @@ export function TradingWorkspace({
   const [quickTrade, setQuickTrade] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [hoverBar, setHoverBar] = useState<number | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
 
   /**
@@ -804,7 +807,23 @@ export function TradingWorkspace({
               No candles returned for {timeframe}.
             </div>
           ) : (
-            <div className="jg-chart-stack">
+            <div
+              className="jg-chart-stack"
+              /* The drawing layer sits above the canvas and its shapes take
+                 pointer events so they can be selected, which means a large
+                 shape swallows the chart's own crosshair. Resolving the
+                 hovered bar here, from the shared coordinate bridge, works
+                 whatever happens to be layered on top. */
+              onMouseMove={(event) => {
+                if (!coords || bars.length === 0) return;
+                const box = event.currentTarget.getBoundingClientRect();
+                const time = coords.xToTime(event.clientX - box.left);
+                if (time == null) { setHoverBar(null); return; }
+                const index = bars.findIndex((bar) => bar.time === time);
+                setHoverBar(index >= 0 ? index : null);
+              }}
+              onMouseLeave={() => setHoverBar(null)}
+            >
               {quickTrade && (
                 <QuickTrade
                   instrument={instrument}
@@ -1102,6 +1121,16 @@ export function TradingWorkspace({
                 onDelete={draw.remove}
               />
             )}
+            {panel === "data" && (
+              <DataWindow
+                bars={bars}
+                hoverIndex={hoverBar}
+                timeframe={timeframe}
+                symbol={symbol}
+                readouts={readouts}
+                analysis={analysis}
+              />
+            )}
             {panel === "technicals" && (
               <TechnicalSummary bars={bars} timeframe={timeframe} />
             )}
@@ -1144,7 +1173,7 @@ export function TradingWorkspace({
                 ticket. Open Trade to reach it.
               </p>
             )}
-            {(panel === "data" || panel === "chat" || panel === "products" ||
+            {(panel === "chat" || panel === "products" ||
               panel === "help" || panel === "strategies" ||
               panel === "brokers") && (
               <p className="jg-cc-note">
