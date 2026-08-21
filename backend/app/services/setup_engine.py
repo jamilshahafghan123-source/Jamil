@@ -180,7 +180,12 @@ def _confidence(
 
     # --- momentum: MACD histogram sign plus RSI position
     mom = setup_tf.get("momentum", "NEUTRAL")
-    rsi = float(setup_tf.get("rsi14") or 50.0)
+    # `or 50.0` here read an RSI of 0.0 — maximum bearish exhaustion — as
+    # neutral, because 0.0 is falsy. A BUY at RSI 100 took the exhaustion
+    # penalty below and a SELL at RSI 0 never did, so the two directions
+    # were not scored equally. Missing and zero are different facts.
+    raw_rsi = setup_tf.get("rsi14")
+    rsi = 50.0 if raw_rsi is None else float(raw_rsi)
     score = 0
     if (direction == "BUY" and mom == "RISING") or (direction == "SELL" and mom == "FALLING"):
         score = WEIGHTS["momentum"]

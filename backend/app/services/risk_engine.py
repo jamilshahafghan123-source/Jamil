@@ -36,6 +36,8 @@ class RiskDecision:
     #: The grade that was checked, or None when none was supplied. A
     #: refusal has to be able to say which it was.
     opportunity_grade: str | None = None
+    #: The grade that was demanded of it.
+    required_grade: str | None = None
 
     def block(self, reason: str) -> "RiskDecision":
         self.approved = False
@@ -243,14 +245,30 @@ def evaluate(
     # which is different from having a bad one — see `meets_grade`.
     if opportunity_grade is not None:
         d.opportunity_grade = opportunity_grade
-        clears = opportunity.meets_grade(
-            opportunity_grade, requirement.min_grade
-        )
+        # GATED AT THE ABSOLUTE FLOOR, NOT THE CLASS REQUIREMENT.
+        #
+        # The class asks for GOOD. That is the right standard for the
+        # opportunity log's own verdict, and it is what `qualified`
+        # reports there. It is NOT yet safe as an execution gate, because
+        # the score it is compared against cannot be calibrated without
+        # live market data — three of the thirteen factors were being
+        # mis-read until this batch, and on synthetic data a clean trend
+        # scores POOR for reasons that say more about the data than the
+        # setup. Refusing everything is as wrong as refusing nothing, and
+        # section 47 forbids solving one by causing the other.
+        #
+        # The floor is the platform's own declared minimum quality, so it
+        # refuses genuinely POOR setups without inventing a threshold
+        # nobody has measured. Raising this to the class requirement is a
+        # one-line change once live scores have been observed.
+        required = opportunity.ABSOLUTE_FLOOR.min_grade
+        d.required_grade = required.value
+        clears = opportunity.meets_grade(opportunity_grade, required)
         if clears is False:
             return d.block(
                 f"opportunity grade {opportunity_grade} below "
-                f"{requirement.min_grade.value} required for a "
-                f"{d.setup_class} setup"
+                f"{required.value}, the minimum quality this platform "
+                f"will trade"
             )
 
     # Spread is gated by whichever limit is TIGHTER — the account's or the

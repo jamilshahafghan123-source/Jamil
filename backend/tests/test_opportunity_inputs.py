@@ -19,7 +19,11 @@ def _analysis(**over) -> dict:
         "timeframes": [
             {"timeframe": "H4", "role": "MAJOR", "trend": "UP"},
             {"timeframe": "H1", "role": "INTERMEDIATE", "trend": "UP"},
-            {"timeframe": "M15", "role": "SETUP", "trend": "UP", "atr14": 6.0},
+            {"timeframe": "M15", "role": "SETUP", "trend": "UP", "atr14": 6.0,
+             # What the analyst actually emits, and what the entry
+             # trigger is now read from.
+             "pullback": "SHALLOW", "breakout": "NONE",
+             "breakout_confirmed": False, "bos": True},
         ],
         "setup": {
             "confidence_components": {
@@ -30,7 +34,7 @@ def _analysis(**over) -> dict:
             "trigger": 3000.0,
             "stop_loss": 2994.0,
         },
-        "zones": {"fvg": [{"bias": "BULLISH"}], "order_blocks": []},
+        "zones": {"fvg": [{"side": "bullish"}], "order_blocks": []},
     }
     body.update(over)
     return body
@@ -155,7 +159,7 @@ def test_spread_without_a_limit_is_unmeasured():
 
 
 def test_a_zone_against_the_trade_does_not_support_it():
-    against = _analysis(zones={"fvg": [{"bias": "BEARISH"}], "order_blocks": []})
+    against = _analysis(zones={"fvg": [{"side": "bearish"}], "order_blocks": []})
     factors = oi.factors_from_analysis(
         against, direction="BUY", moment=NOON_LONDON_NY
     )
@@ -166,11 +170,40 @@ def test_a_zone_against_the_trade_does_not_support_it():
 # -------------------------------------------------------------- entry
 
 
-def test_entry_distance_is_measured_in_atr_not_price():
+def test_the_entry_trigger_is_named_in_the_engines_own_taxonomy():
+    """Prose matched nothing, so entry quality scored 0 on every setup.
+
+    `trigger_text` is a sentence for a human. ENTRY_TRIGGERS is keyed by
+    constants. Passing the sentence in meant "no recognised entry
+    trigger" every single time and fourteen points that were never
+    available to anything.
+    """
     trigger, distance = oi.entry_inputs(_analysis())
-    assert trigger == "break of the M15 high"
+    assert trigger == "PULLBACK_TO_STRUCTURE"
+    assert trigger in opportunity.ENTRY_TRIGGERS
     # 6.0 of price over an ATR of 6.0.
     assert distance == 1.0
+
+
+def test_each_trigger_traces_to_a_field_the_analyst_measures():
+    """Ranked best-first, and UNKNOWN rather than guessed."""
+    def tf(**over):
+        body = {"timeframe": "M15", "role": "SETUP", "trend": "UP",
+                "atr14": 6.0, "pullback": "NONE", "breakout": "NONE",
+                "breakout_confirmed": False, "bos": False}
+        body.update(over)
+        return _analysis(timeframes=[body])
+
+    assert oi.entry_trigger(tf(pullback="DEEP")) == "PULLBACK_TO_STRUCTURE"
+    assert oi.entry_trigger(tf(breakout_confirmed=True)) == "RETEST_AFTER_BREAK"
+    assert oi.entry_trigger(tf(bos=True)) == "MOMENTUM_RESUMPTION"
+    assert oi.entry_trigger(tf(breakout="UP")) == "BREAKOUT_CHASE"
+    # Nothing measured: unknown, not invented.
+    assert oi.entry_trigger(tf()) is None
+
+    # A confirmed retest outranks a bare break of structure.
+    assert oi.entry_trigger(
+        tf(breakout_confirmed=True, bos=True)) == "RETEST_AFTER_BREAK"
 
 
 def test_entry_distance_is_none_without_an_atr():
@@ -197,13 +230,16 @@ def test_a_strong_setup_in_the_overlap_grades_well():
         timeframe_biases=oi.timeframe_biases(analysis),
         entry_trigger=trigger, distance_to_invalidation_atr=distance,
     )
-    # 68 rather than a round number: candle_confirmation is not measured
-    # anywhere and costs its full three points, which is the honest
-    # outcome and is stated in the breakdown.
     assert graded["score"]["total"] >= 65
     assert graded["qualified"] is True
+    # candle_confirmation is measured nowhere in the analyst and costs its
+    # full three points, which is the honest outcome and is stated in the
+    # breakdown. entry_location is derived by the engine from the trigger
+    # this adapter names, so it is never supplied here.
     unmeasured = [n for n in graded["score"]["notes"] if "not measured" in n]
-    assert unmeasured == ["candle_confirmation: not measured"]
+    assert "candle_confirmation: not measured" in unmeasured
+    assert not any("structure" in n or "trend_alignment" in n
+                   for n in unmeasured), unmeasured
 
 
 def test_the_same_setup_out_of_hours_scores_lower():

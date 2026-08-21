@@ -112,14 +112,30 @@ def _setup_timeframe(analysis: dict) -> dict:
     return tfs[0] if tfs else {}
 
 
+#: The analyst reports a trend as UP/DOWN/RANGE. The opportunity engine
+#: compares against BULLISH/BEARISH/NEUTRAL. They are the same idea in two
+#: vocabularies, and until this map existed the comparison never matched:
+#: `higher_timeframe` scored 0.0 on every setup in both directions, losing
+#: its ten points to a translation nobody had written.
+_TREND_AS_BIAS = {
+    "UP": "BULLISH",
+    "DOWN": "BEARISH",
+    "RANGE": "NEUTRAL",
+    "UNKNOWN": "NEUTRAL",
+}
+
+
 def timeframe_biases(analysis: dict) -> dict[str, str]:
-    """Each timeframe's trend, for the higher-timeframe alignment factor."""
+    """Each timeframe's trend, in the vocabulary the engine compares in."""
     out: dict[str, str] = {}
     for view in analysis.get("timeframes") or []:
         name = view.get("timeframe")
-        trend = view.get("trend")
-        if name and trend:
-            out[str(name)] = str(trend)
+        trend = str(view.get("trend") or "").upper()
+        if not name or not trend:
+            continue
+        bias = _TREND_AS_BIAS.get(trend)
+        if bias:
+            out[str(name)] = bias
     return out
 
 
@@ -179,19 +195,58 @@ def factors_from_analysis(
 
 
 def _supporting(zones: list, direction: str) -> bool:
-    """Whether any zone backs a trade in this direction."""
+    """Whether any zone backs a trade in THIS direction.
+
+    The analyst labels a zone with `side`: "bullish" or "bearish". This
+    read `bias` and `direction`, neither of which the analyst emits, so
+    every zone came back unlabelled — and unlabelled was then counted as
+    support. Both factors scored full marks for both directions whenever
+    any zone existed at all, which meant a bearish fair-value gap was
+    evidence for a BUY.
+
+    An unlabelled zone is no longer treated as support. A zone that does
+    not say which way it points cannot be evidence that a trade points
+    the right way.
+    """
     want = "BULLISH" if direction == "BUY" else "BEARISH"
     for zone in zones or []:
         if not isinstance(zone, dict):
             continue
-        kind = str(zone.get("bias") or zone.get("direction") or "").upper()
-        if kind == want:
-            return True
-        # Zones with no stated bias still count as structure being present
-        # on the chart, which is what this factor is asking about.
-        if not kind:
+        side = str(zone.get("side") or "").upper()
+        if side == want:
             return True
     return False
+
+
+def entry_trigger(analysis: dict) -> str | None:
+    """Name the entry in the opportunity engine's own taxonomy.
+
+    `setup.trigger_text` is prose for a human — "M15 close above 3000.50"
+    — and ENTRY_TRIGGERS is keyed by constants. Passing the prose in
+    matched nothing, so `entry_quality` returned 0.0 with "no recognised
+    entry trigger" on EVERY setup and the factor's fourteen points were
+    never available to anything.
+
+    Each branch below reads a field the analyst genuinely measures. Where
+    none of them applies the trigger is UNKNOWN rather than guessed, and
+    the factor is left out entirely — an unmeasured factor is honest, an
+    invented one is not.
+    """
+    setup_tf = _setup_timeframe(analysis)
+
+    # Order matters: these are ranked by entry quality in ENTRY_TRIGGERS,
+    # and a setup that is several of them at once deserves the best one
+    # it has actually earned.
+    if str(setup_tf.get("pullback") or "NONE").upper() != "NONE":
+        return "PULLBACK_TO_STRUCTURE"
+    if setup_tf.get("breakout_confirmed"):
+        return "RETEST_AFTER_BREAK"
+    if setup_tf.get("bos"):
+        return "MOMENTUM_RESUMPTION"
+    if str(setup_tf.get("breakout") or "NONE").upper() not in ("NONE", ""):
+        # A break that has not been confirmed by a retest is a chase.
+        return "BREAKOUT_CHASE"
+    return None
 
 
 def entry_inputs(analysis: dict) -> tuple[str | None, float | None]:
@@ -202,7 +257,7 @@ def entry_inputs(analysis: dict) -> tuple[str | None, float | None]:
     thing on a quiet day and a violent one.
     """
     setup = analysis.get("setup") or {}
-    trigger = setup.get("trigger_text") or None
+    trigger = entry_trigger(analysis)
     setup_tf = _setup_timeframe(analysis)
     atr = setup_tf.get("atr14") or (analysis.get("market") or {}).get("volatility")
     entry = setup.get("trigger") or setup.get("entry_low") or setup.get("entry_high")

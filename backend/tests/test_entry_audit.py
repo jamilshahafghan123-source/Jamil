@@ -286,15 +286,14 @@ async def test_inverted_geometry_is_refused_rather_than_flipped(env, direction):
 
 
 @pytest.mark.parametrize("direction", BOTH)
-@pytest.mark.parametrize("grade", ["POOR", "ACCEPTABLE"])
+@pytest.mark.parametrize("grade", ["POOR"])
 @pytest.mark.asyncio
 async def test_a_low_grade_setup_is_refused_in_both_directions(
     env, direction, grade
 ):
     """Grade was scored, recorded, and never enforced.
 
-    A POOR setup with adequate confidence and risk/reward executed. The
-    class requirement is GOOD, so both of these must be refused.
+    A POOR setup with adequate confidence and risk/reward executed.
     """
     geometry = GEOMETRY[direction]
     async with env["Session"]() as db:
@@ -318,10 +317,16 @@ async def test_a_low_grade_setup_is_refused_in_both_directions(
 
 
 @pytest.mark.parametrize("direction", BOTH)
-@pytest.mark.parametrize("grade", ["GOOD", "EXCELLENT"])
+@pytest.mark.parametrize("grade", ["ACCEPTABLE", "GOOD", "EXCELLENT"])
 @pytest.mark.asyncio
 async def test_an_adequate_grade_still_executes(env, direction, grade):
-    """The gate must not close the door on setups that deserve to trade."""
+    """The gate must not close the door on setups that deserve to trade.
+
+    ACCEPTABLE trades: the gate sits at the platform's declared floor,
+    not the class's GOOD, because the score behind the grade cannot be
+    calibrated without live data. Refusing everything would be as wrong
+    as refusing nothing.
+    """
     geometry = GEOMETRY[direction]
     async with env["Session"]() as db:
         row = (await db.execute(select(RiskSettings))).scalar_one()
@@ -469,3 +474,68 @@ def test_the_ask_route_never_calls_an_execution_function():
     for forbidden in ("execute_signal", "open_position", "close_position",
                       "close_all", "order_send", "evaluate_and_execute"):
         assert forbidden not in called, forbidden
+
+
+def test_the_grade_gate_sits_at_the_declared_floor():
+    """A gate nobody can calibrate must not be set by guesswork.
+
+    The class asks for GOOD and the opportunity log still reports against
+    that. Execution gates at the platform's own declared minimum, so it
+    refuses genuinely poor setups without inventing a threshold that
+    could silently take the bot to zero trades a day.
+    """
+    from app.services.opportunity import ABSOLUTE_FLOOR, Grade, SetupClass
+    from app.services.opportunity import requirements_for
+
+    assert ABSOLUTE_FLOOR.min_grade is Grade.ACCEPTABLE
+    for setup_class in SetupClass:
+        assert requirements_for(setup_class).min_grade is Grade.GOOD, \
+            "the class standard is unchanged; only the GATE is at the floor"
+
+
+def test_mirrored_bull_and_bear_data_score_identically():
+    """BUY and SELL must be scored by the same yardstick.
+
+    An RSI of 0.0 — maximum bearish exhaustion — was read as neutral 50
+    because 0.0 is falsy, so a BUY at RSI 100 took the exhaustion penalty
+    and the mirrored SELL did not. The two directions differed by five
+    confidence points on identical, mirrored input.
+    """
+    from app.services.setup_engine import _confidence
+
+    def view(trend: str, momentum: str, rsi: float) -> dict:
+        return {
+            "timeframe": "M15", "role": "SETUP", "trend": trend,
+            "momentum": momentum, "rsi14": rsi, "atr14": 6.0,
+            "structure_detail": {"pattern": "UNCLEAR"},
+            "support_levels": [], "resistance_levels": [], "liquidity": [],
+            "volume": {"relative": 1.0},
+        }
+
+    bull = {"hierarchy": {"higher_aligned": True},
+            "timeframes": [view("UP", "RISING", 100.0)]}
+    bear = {"hierarchy": {"higher_aligned": True},
+            "timeframes": [view("DOWN", "FALLING", 0.0)]}
+
+    buy_total, buy_comp = _confidence(bull, "BUY", bull["timeframes"][0], 2.0)
+    sell_total, sell_comp = _confidence(bear, "SELL", bear["timeframes"][0], 2.0)
+
+    assert buy_comp["momentum"] == sell_comp["momentum"], \
+        "exhaustion must cost both directions the same"
+    assert buy_total == sell_total
+
+
+def test_a_missing_rsi_is_still_treated_as_neutral():
+    """The fix must not turn "absent" into 0 and penalise every SELL."""
+    from app.services.setup_engine import _confidence
+
+    tf = {
+        "timeframe": "M15", "role": "SETUP", "trend": "DOWN",
+        "momentum": "FALLING", "atr14": 6.0,
+        "structure_detail": {"pattern": "UNCLEAR"},
+        "support_levels": [], "resistance_levels": [], "liquidity": [],
+        "volume": {"relative": 1.0},
+    }
+    _, comp = _confidence({"timeframes": [tf]}, "SELL", tf, 2.0)
+    # No rsi14 key at all: neutral, so no exhaustion penalty.
+    assert comp["momentum"] == 15
