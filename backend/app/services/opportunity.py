@@ -573,3 +573,21 @@ def evaluate(
 def _grade_rank(grade: Grade) -> int:
     return {Grade.POOR: 0, Grade.ACCEPTABLE: 1,
             Grade.GOOD: 2, Grade.EXCELLENT: 3}[grade]
+
+
+def meets_grade(actual: str | Grade | None, required: Grade) -> bool | None:
+    """Whether a measured grade clears a required one.
+
+    Returns None when the grade is UNKNOWN — not False. "We did not
+    measure the quality of this setup" and "we measured it and it was
+    poor" are different facts, and a caller that cannot tell them apart
+    will eventually treat one as the other.
+    """
+    if actual is None:
+        return None
+    try:
+        grade = Grade(actual) if not isinstance(actual, Grade) else actual
+    except ValueError:
+        # A grade nothing recognises is not a pass.
+        return False
+    return _grade_rank(grade) >= _grade_rank(required)

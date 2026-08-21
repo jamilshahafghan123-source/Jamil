@@ -73,6 +73,7 @@ async def execute_signal(
     quote: demo_engine.Quote,
     account_balance: float | None = None,
     opportunity_id: int | None = None,
+    opportunity_grade: str | None = None,
 ) -> DemoExecutionResult:
     """Risk-check an AI signal and, if approved, open a *virtual* position.
 
@@ -148,6 +149,9 @@ async def execute_signal(
         stats=stats,
         # Never true from here. A virtual venue has no live account to arm.
         server_allows_real=False,
+        # The opportunity engine's own grade, so a POOR setup is refused
+        # here rather than merely recorded as poor afterwards.
+        opportunity_grade=opportunity_grade,
     )
 
     signal.risk_approved = decision.approved

@@ -33,6 +33,9 @@ class RiskDecision:
     setup_class: str = "STANDARD"
     required_confidence: int = 0
     required_rr: float = 0.0
+    #: The grade that was checked, or None when none was supplied. A
+    #: refusal has to be able to say which it was.
+    opportunity_grade: str | None = None
 
     def block(self, reason: str) -> "RiskDecision":
         self.approved = False
@@ -143,6 +146,7 @@ def evaluate(
     requested_volume: float | None = None,
     setup_class: str | None = None,
     regime: str | None = None,
+    opportunity_grade: str | None = None,
 ) -> RiskDecision:
     """Run every gate. Order matters: cheapest and most absolute first."""
     d = RiskDecision(approved=True)
@@ -229,6 +233,25 @@ def evaluate(
             f"confidence {confidence} below {requirement.min_confidence} "
             f"required for a {d.setup_class} setup"
         )
+
+    # Opportunity grade. The engine scores thirteen measured factors and
+    # grades the result; until now that grade was recorded and never
+    # enforced, so a POOR setup with adequate confidence and RR executed.
+    #
+    # A grade is only checked when one was supplied. An order a human
+    # placed by hand has no opportunity behind it and no grade to check,
+    # which is different from having a bad one — see `meets_grade`.
+    if opportunity_grade is not None:
+        d.opportunity_grade = opportunity_grade
+        clears = opportunity.meets_grade(
+            opportunity_grade, requirement.min_grade
+        )
+        if clears is False:
+            return d.block(
+                f"opportunity grade {opportunity_grade} below "
+                f"{requirement.min_grade.value} required for a "
+                f"{d.setup_class} setup"
+            )
 
     # Spread is gated by whichever limit is TIGHTER — the account's or the
     # setup class's. A scalp's edge is small enough that spread alone can

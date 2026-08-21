@@ -749,6 +749,11 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     # must never become a refused trade.
     opportunity_id: int | None = None
     graded: dict | None = None
+
+    # GRADING IS A RISK INPUT, RECORDING IS TELEMETRY. They used to share
+    # one try/except, which meant a bug in the grading would be swallowed
+    # as "telemetry failed" and execution would carry on with no grade to
+    # check — a gate opened by an error nobody saw.
     try:
         now = datetime.now(timezone.utc)
         analysis = signal.analysis or {}
@@ -770,6 +775,15 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             account_min_confidence=row.min_confidence,
             account_min_rr=row.min_rr,
         )
+    except Exception:  # noqa: BLE001 - an ungraded setup is not tradeable
+        # Grading is pure computation over data already in hand, so a
+        # failure here is a bug rather than an outage. Refusing to trade a
+        # setup whose quality could not be assessed is the safe answer.
+        log.exception("opportunity grading failed for user %s; not trading",
+                      user.id)
+        return
+
+    try:
         opportunity_id = await telemetry.record_opportunity(
             db,
             user_id=user.id,
@@ -788,6 +802,8 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             score_breakdown=graded["score"],
         )
     except Exception:  # noqa: BLE001 - telemetry never blocks trading
+        # Recording is reporting. Losing it costs the audit trail, not
+        # the trade.
         log.warning("opportunity telemetry failed for user %s", user.id,
                     exc_info=True)
 
@@ -820,6 +836,7 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             settings_row=row,
             quote=quote,
             opportunity_id=opportunity_id,
+            opportunity_grade=graded["score"]["grade"],
         )
         await db.commit()
         # The risk ruling and what execution did are recorded separately:
