@@ -4639,3 +4639,19 @@ th.right {
 .jg-acc-section > summary:hover { color: var(--text, #e6e8ec); }
 .jg-acc-section > *:not(summary) { padding: 0 8px 8px; }
 .jg-acc-basis { letter-spacing: 0.06em; opacity: 0.75; }
+
+/* A symbol you can open. Styled as a link rather than a button so the
+   table still reads as a table. */
+.jg-screener-open {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--gold, #d9a441);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.jg-screener-open:hover { color: #f0c574; }
+.jg-screener-table td.up { color: #3fb950; font-variant-numeric: tabular-nums; }
+.jg-screener-table td.down { color: #f4564a; font-variant-numeric: tabular-nums; }

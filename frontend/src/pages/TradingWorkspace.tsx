@@ -1332,7 +1332,13 @@ export function TradingWorkspace({
                 detail="Not enough J Gold AI customer activity to report an aggregate without exposing individuals. A percentage invented to fill this space would be worse than an empty panel."
               />
             )}
-            {panel === "screener" && <ScreenerPanel currentSymbol={symbol} />}
+            {panel === "screener" && (
+              <ScreenerPanel
+                currentSymbol={symbol}
+                bars={bars}
+                onSelect={setSymbol}
+              />
+            )}
             {panel === "chat" && (
               <AskPanel symbol={symbol} timeframe={timeframe} />
             )}
