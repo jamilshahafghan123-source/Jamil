@@ -25,6 +25,21 @@ idempotent and states its effect on existing data.
 | `012_bot_pause.sql` | `bot_paused` column on `risk_settings` | Column added with a default |
 | `013_position_opportunity.sql` | `opportunity_id` column on `demo_positions` | Column added as NULL |
 
+## Checking what a database actually has
+
+`create_all` builds a NEW database complete, so a fresh install never
+needs these files — and an existing one never gets them from it, because
+`create_all` does not alter a table that already exists. That gap is what
+the files are for, and assuming they ran is how a column silently goes
+missing on one deployment.
+
+    psql "$DATABASE_URL" -f migrations/verify_schema.sql
+
+reports PRESENT or MISSING per migration. It only SELECTs, so it is safe
+against production and safe to repeat. Anything MISSING can be applied
+with the named file; they are additive and idempotent, so running one
+twice is a no-op rather than an error.
+
 `008` is the first file that changes an existing column's *type* rather
 than adding one. It converts `users.role` from the VARCHAR an older
 revision created into the native `userrole` enum that `models.py` now

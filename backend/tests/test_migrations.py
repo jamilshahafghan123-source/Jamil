@@ -72,10 +72,45 @@ def test_role_conversion_refuses_rather_than_discards():
         assert destructive not in body
 
 
+#: Non-migration SQL that lives in this directory. Each must be named
+#: here deliberately, so an unnumbered file cannot quietly avoid the
+#: documentation rule by not looking like a migration.
+TOOLS = {"verify_schema.sql"}
+
+
 def test_every_migration_file_is_documented():
     """A file nobody knows to run is the same as a missing migration."""
     readme = _sql("README.md")
-    files = sorted(p.name for p in MIGRATIONS.glob("*.sql"))
+    files = sorted(p.name for p in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"))
     assert files, "no migrations found"
     undocumented = [name for name in files if f"`{name}`" not in readme]
     assert undocumented == []
+
+
+def test_every_sql_file_is_either_a_migration_or_a_named_tool():
+    """Nothing gets to sit here unaccounted for.
+
+    The documentation rule above matches numbered files. Without this, a
+    file called `fix.sql` would satisfy it by not being a migration.
+    """
+    stray = [
+        p.name for p in MIGRATIONS.glob("*.sql")
+        if p.name not in TOOLS and not re.match(r"^\d{3}_.+\.sql$", p.name)
+    ]
+    assert stray == []
+
+
+def test_the_verification_tool_only_reads():
+    """It is pointed at production databases, so it may not write.
+
+    Comments are stripped before scanning. A file that documents "no
+    INSERT, no DELETE" would otherwise fail its own promise, and a check
+    that trips over prose teaches people to stop writing prose.
+    """
+    statements = "\n".join(
+        line.split("--", 1)[0]
+        for line in _sql("verify_schema.sql").splitlines()
+    ).upper()
+    for destructive in ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "DROP",
+                        "ALTER", "CREATE"):
+        assert destructive not in statements, destructive
