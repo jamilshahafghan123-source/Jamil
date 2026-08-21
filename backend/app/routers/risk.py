@@ -16,7 +16,13 @@ from ..deps import (
     require_platform_access,
 )
 from ..models import DemoPosition, RiskSettings, TradingMode, User
-from ..schemas import BotToggleRequest, ModeChangeRequest, RiskSettingsIn, RiskSettingsOut
+from ..schemas import (
+    BotPauseRequest,
+    BotToggleRequest,
+    ModeChangeRequest,
+    RiskSettingsIn,
+    RiskSettingsOut,
+)
 from ..services import bot_status as bot_status_service
 from ..services import executor, maintenance, safe_mode
 from ..services.mt5_client import mt5
@@ -45,6 +51,7 @@ def _out(row: RiskSettings) -> RiskSettingsOut:
         max_spread_points=row.max_spread_points,
         trading_mode=row.trading_mode,
         bot_enabled=row.bot_enabled,
+        bot_paused=row.bot_paused,
         emergency_stop=row.emergency_stop,
         halted_until_date=row.halted_until_date.isoformat()
         if row.halted_until_date
@@ -140,6 +147,37 @@ async def toggle_bot(
     await db.commit()
     await db.refresh(row)
     await audit.record(db, audit.BOT_TOGGLED, {"enabled": body.enabled}, user.id)
+    return _out(row)
+
+
+@router.post("/bot/pause", response_model=RiskSettingsOut)
+async def pause_bot(
+    body: BotPauseRequest,
+    user: User = Depends(current_user),
+    row: RiskSettings = Depends(get_risk_settings),
+    db: AsyncSession = Depends(get_db),
+) -> RiskSettingsOut:
+    """Hold the bot without switching it off.
+
+    Pausing leaves bot_enabled alone on purpose. The customer's intent is
+    "stop opening things for a while", not "tear down the configuration",
+    and resuming should not be an act of re-arming. Open positions keep
+    being managed throughout — a pause that abandoned live positions would
+    be worse than either running or stopping.
+
+    Resuming is refused while the emergency stop is engaged, for the same
+    reason starting is: the stop is the outer control and nothing below it
+    may talk past it.
+    """
+    if not body.paused and row.emergency_stop:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Emergency stop is engaged. Clear it before resuming the bot.",
+        )
+    row.bot_paused = body.paused
+    await db.commit()
+    await db.refresh(row)
+    await audit.record(db, audit.BOT_TOGGLED, {"paused": body.paused}, user.id)
     return _out(row)
 
 
@@ -245,6 +283,7 @@ async def bot_status(
         bot_enabled=row.bot_enabled,
         emergency_stop=row.emergency_stop,
         trading_mode=row.trading_mode.value,
+        paused=row.bot_paused,
         safe_mode_active=bool(safe_state and safe_state.blocks_automated_trading),
         safe_mode_reason=getattr(safe_state, "reason", "") or "",
         maintenance_active=maintenance_state.blocks_automated_trading,
@@ -256,6 +295,7 @@ async def bot_status(
     )
     payload = result.as_dict()
     payload["bot_enabled"] = row.bot_enabled
+    payload["bot_paused"] = row.bot_paused
     payload["trading_mode"] = row.trading_mode.value
     payload["venue"] = venue_name
     payload["open_positions"] = int(open_positions)

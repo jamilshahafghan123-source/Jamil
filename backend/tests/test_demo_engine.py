@@ -479,3 +479,72 @@ def test_clearing_ai_overlays_touches_only_ai_state():
     # Nothing belonging to the user is reset here.
     for user_state in ("setStopLoss", "setTakeProfit", "setVolume", "setBars"):
         assert user_state not in clear_block
+
+
+# ------------------------------------------------- today's performance
+
+
+@pytest.mark.asyncio
+async def test_performance_reports_zeros_before_any_trade(env):
+    """A quiet day is zeros, not a blank and not something encouraging."""
+    r = await env["client"].get("/api/demo/performance",
+                                headers=_h(env["tokens"]["alice"]))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["today"] == {"net_pnl": 0, "trades": 0, "wins": 0,
+                             "losses": 0, "breakeven": 0, "win_rate": None}
+    assert body["open_positions"] == 0
+    # The window is stated, because "today" on a 24-hour market is not
+    # self-evident and a P/L whose period the reader guesses at is not one.
+    assert body["day_basis"] == "UTC"
+    assert body["day_start"].endswith("00:00:00+00:00")
+
+
+@pytest.mark.asyncio
+async def test_performance_counts_the_trades_that_actually_closed(env):
+    client, h = env["client"], _h(env["tokens"]["alice"])
+    for _ in range(3):
+        opened = await client.post("/api/demo/positions", headers=h,
+                                   json={"symbol": "XAUUSD", "side": "BUY",
+                                         "volume": 0.1})
+        pid = opened.json()["position"]["id"]
+        await client.post(f"/api/demo/positions/{pid}/close", headers=h)
+
+    body = (await client.get("/api/demo/performance", headers=h)).json()
+    assert body["today"]["trades"] == 3
+    # Every count adds up. A missing category is how a figure stops
+    # being checkable.
+    t = body["today"]
+    assert t["wins"] + t["losses"] + t["breakeven"] == t["trades"]
+
+    # And the net matches the trades themselves, not a separate tally.
+    trades = (await client.get("/api/demo/trades", headers=h)).json()
+    assert t["net_pnl"] == round(sum(x["realized_pnl"] for x in trades), 2)
+
+
+@pytest.mark.asyncio
+async def test_an_open_position_is_not_counted_as_a_trade_yet(env):
+    client, h = env["client"], _h(env["tokens"]["alice"])
+    await client.post("/api/demo/positions", headers=h,
+                      json={"symbol": "XAUUSD", "side": "BUY", "volume": 0.1})
+    body = (await client.get("/api/demo/performance", headers=h)).json()
+    assert body["today"]["trades"] == 0
+    assert body["open_positions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_performance_is_scoped_to_the_caller(env):
+    """Alice's trades never appear in Bob's day."""
+    client = env["client"]
+    opened = await client.post("/api/demo/positions",
+                               headers=_h(env["tokens"]["alice"]),
+                               json={"symbol": "XAUUSD", "side": "BUY",
+                                     "volume": 0.1})
+    pid = opened.json()["position"]["id"]
+    await client.post(f"/api/demo/positions/{pid}/close",
+                      headers=_h(env["tokens"]["alice"]))
+
+    bob = (await client.get("/api/demo/performance",
+                            headers=_h(env["tokens"]["bob"]))).json()
+    assert bob["today"]["trades"] == 0
+    assert bob["today"]["net_pnl"] == 0

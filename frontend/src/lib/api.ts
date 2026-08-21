@@ -19,6 +19,7 @@
   BrokerDirectory,
   AlertFeed,
   BotStatus,
+  DemoPerformance,
   AlertKinds,
   CustomerAlert,
   OpportunityFeed,
@@ -243,6 +244,15 @@ export const api = {
 
   /** What the bot is genuinely doing — derived, never asserted. */
   botStatus: () => request<BotStatus>("/api/risk/bot/status"),
+
+  /** Hold the bot without switching it off. */
+  setBotPaused: (paused: boolean) =>
+    request<RiskSettings>("/api/risk/bot/pause", {
+      method: "POST", body: JSON.stringify({ paused }),
+    }),
+
+  /** Today's real trading, counted from trades that actually closed. */
+  demoPerformance: () => request<DemoPerformance>("/api/demo/performance"),
 
   setBotEnabled: (enabled: boolean) =>
     request<RiskSettings>("/api/risk/bot", {

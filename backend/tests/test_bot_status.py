@@ -94,3 +94,28 @@ def test_blocked_states_are_reported_as_blocked():
                    base(safe_mode_active=True), base(maintenance_active=True)):
         assert status.as_dict()["blocked"] is True
     assert base().as_dict()["blocked"] is False
+
+
+def test_a_paused_bot_reports_paused():
+    status = base(paused=True)
+    assert status.state is BotState.PAUSED
+    assert "still managed" in status.detail
+
+
+def test_pause_outranks_the_operational_states_below_it():
+    """A paused bot is not "waiting for a setup" — it was told not to take one."""
+    assert base(paused=True, open_positions=3).state is BotState.PAUSED
+    assert base(paused=True, risk_blocked_reason="spread").state is BotState.PAUSED
+    assert base(paused=True, trading_mode="MANUAL").state is BotState.PAUSED
+
+
+def test_pause_does_not_talk_over_the_platform_blocks():
+    """An account under an emergency stop is not described as "paused"."""
+    assert base(paused=True, emergency_stop=True).state is BotState.EMERGENCY_STOP
+    assert base(paused=True, maintenance_active=True).state is BotState.MAINTENANCE_MODE
+    assert base(paused=True, safe_mode_active=True).state is BotState.SAFE_MODE
+    assert base(paused=True, bot_enabled=False).state is BotState.OFF
+
+
+def test_a_paused_bot_is_reported_as_blocked():
+    assert base(paused=True).as_dict()["blocked"] is True

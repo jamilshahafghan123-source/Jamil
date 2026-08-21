@@ -84,6 +84,7 @@ def derive(
     bot_enabled: bool,
     emergency_stop: bool,
     trading_mode: str,
+    paused: bool = False,
     safe_mode_active: bool = False,
     safe_mode_reason: str = "",
     maintenance_active: bool = False,
@@ -122,6 +123,18 @@ def derive(
 
     if not bot_enabled:
         return BotStatus(BotState.OFF, "The bot is switched off.")
+
+    # A pause is the customer's own hold and outranks every operational
+    # state below it: there is no point reporting "waiting for a setup"
+    # to someone who has told the bot not to take one. It sits below the
+    # platform-level blocks, though — a pause does not describe an
+    # account under an emergency stop.
+    if paused:
+        return BotStatus(
+            BotState.PAUSED,
+            "Paused. Open positions are still managed; nothing new will "
+            "be opened until you resume.",
+        )
 
     # Infrastructure next: a bot with no prices is not waiting for a setup,
     # it cannot see the market at all.

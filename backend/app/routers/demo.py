@@ -341,6 +341,70 @@ async def list_trades(
     ]
 
 
+@router.get("/performance")
+async def get_performance(
+    user: User = Depends(require_demo_access),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Today's trading, counted from the trades that actually closed.
+
+    Every figure is derived from DemoTrade rows. Nothing is sampled,
+    seeded or smoothed, and a day with no trades reports zeros rather
+    than something more encouraging.
+
+    THE DAY IS UTC, and says so in the response. "Today" is ambiguous on a
+    market that never fully closes, and a P/L figure whose window the
+    reader has to guess at is not a P/L figure. The boundary is returned
+    so the caller can label it instead of assuming its own timezone.
+
+    A break-even trade is counted separately rather than being rounded
+    into a win. Wins plus losses would otherwise not equal trades, and
+    the reader would be left to wonder where the difference went.
+    """
+    account = await _account_for(db, user)
+    now = datetime.now(timezone.utc)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    rows = (
+        (
+            await db.execute(
+                select(DemoTrade).where(
+                    DemoTrade.account_id == account.id,
+                    DemoTrade.closed_at >= day_start,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    wins = sum(1 for t in rows if t.realized_pnl > 0)
+    losses = sum(1 for t in rows if t.realized_pnl < 0)
+    net = sum(t.realized_pnl for t in rows)
+
+    open_count = len(await _open_positions(db, account))
+
+    return {
+        "day_start": day_start.isoformat(),
+        "day_basis": "UTC",
+        "today": {
+            "net_pnl": round(net, 2),
+            "trades": len(rows),
+            "wins": wins,
+            "losses": losses,
+            "breakeven": len(rows) - wins - losses,
+            # Reported only once there is something to take a rate of. A
+            # win rate off two trades is a number, not information, and
+            # 0% off none is simply false.
+            "win_rate": (
+                round(wins / len(rows) * 100, 1) if rows else None
+            ),
+        },
+        "open_positions": open_count,
+        "currency": "USD",
+    }
+
+
 class ResetIn(BaseModel):
     confirm: bool = False
 

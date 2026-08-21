@@ -358,6 +358,12 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     # for the dashboard; a human decides.
     autonomous = row.trading_mode in (TradingMode.DEMO, TradingMode.REAL)
 
+    # A pause stops the bot OPENING, not the bot working. Management of
+    # what is already open carries on: a pause that walked away from live
+    # positions would be worse than either running or stopping, and it is
+    # not what "hold off for a bit" means to anyone who says it.
+    may_open = autonomous and not row.bot_paused
+
     # Clear a stale halt at the UTC day roll.
     today = datetime.now(timezone.utc).date()
     if row.halted_until_date and row.halted_until_date < today:
@@ -451,7 +457,7 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     if signal is None or signal.action == SignalAction.NO_TRADE:
         return
 
-    if not autonomous:
+    if not may_open:
         return
 
     # VENUE ROUTING. Approval and destination are separate questions: the

@@ -8,6 +8,7 @@ every risk check a broker trade passes.
 from __future__ import annotations
 
 import ast
+import inspect
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services import demo_execution
+from app.services import bot, demo_execution
 from app.services.demo_engine import Quote
 
 
@@ -267,3 +268,59 @@ async def test_a_rejection_is_recorded_on_the_signal(env):
         stored = (await db.execute(select(Signal))).scalar_one()
     assert stored.risk_approved is False
     assert stored.risk_reasons
+
+
+@pytest.mark.asyncio
+async def test_a_paused_bot_opens_nothing(env):
+    """A pause holds at the execution gate, not only in the bot's loop.
+
+    The loop is one caller. Checking here means a future automated caller
+    inherits the hold instead of having to remember it.
+    """
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.bot_paused = True
+        signal = _signal(env["user"].id)
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row, quote=Quote(bid=3000.0, ask=3000.2),
+        )
+        await db.commit()
+    assert result.executed is False
+    assert any("paused" in r.lower() for r in result.reasons)
+    async with env["Session"]() as db:
+        assert (await db.execute(select(DemoPosition))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_resuming_lets_the_same_signal_through(env):
+    """A pause holds; it does not disarm. The same signal executes after."""
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.bot_paused = False
+        signal = _signal(env["user"].id)
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row, quote=Quote(bid=3000.0, ask=3000.2),
+        )
+        await db.commit()
+    assert result.executed is True
+
+
+def test_the_bot_loop_pauses_opening_without_pausing_management():
+    """The pause gate must sit on the OPENING path only.
+
+    A pause that also stopped managing open positions would leave live
+    trades unattended, which is worse than either running or stopping.
+    """
+    source = inspect.getsource(bot._cycle_for_user)
+    body = source.split("may_open = ")[1]
+    # Reversal handling and profit-taking still run under `autonomous`.
+    assert "_manage_strong_reversal" in body
+    assert "_manage_profitable_positions" in body
+    reversal = body.split("_manage_strong_reversal")[0]
+    assert "if not may_open" not in reversal

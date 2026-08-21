@@ -100,6 +100,14 @@ class RiskSettings(Base):
         Enum(TradingMode), default=TradingMode.MANUAL
     )
     bot_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: A hold, not a stop. Paused keeps the bot switched on and its
+    #: positions managed, but opens nothing new. Separate from
+    #: bot_enabled so resuming does not have to re-arm anything, and
+    #: separate from emergency_stop because a pause is a routine choice
+    #: rather than an incident.
+    bot_paused: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     emergency_stop: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Risk envelope

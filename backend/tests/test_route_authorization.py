@@ -40,6 +40,7 @@ PLATFORM_ROUTES = [
     ("POST", "/api/trading/execute"),
     ("POST", "/api/trading/close-all"),
     ("POST", "/api/risk/emergency-stop"),
+    ("POST", "/api/risk/bot/pause"),
     # Strategies are customer trading configuration and sit behind the
     # same platform gate as everything else here.
     ("GET", "/api/strategies"),

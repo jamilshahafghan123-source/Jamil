@@ -81,6 +81,14 @@ async def execute_signal(
     if signal.action not in (SignalAction.BUY, SignalAction.SELL):
         return DemoExecutionResult(False, ["signal is not actionable"])
 
+    # A pause is checked here as well as in the bot's own loop, so it holds
+    # for any automated caller rather than only the one that exists today.
+    # It is deliberately NOT a risk-engine gate: the risk engine also rules
+    # on orders the customer places by hand, and pausing the bot must not
+    # stop someone trading their own account.
+    if getattr(settings_row, "bot_paused", False):
+        return DemoExecutionResult(False, ["the bot is paused"])
+
     account = await account_for(db, user_id)
     balance = account_balance if account_balance is not None else account.balance
 

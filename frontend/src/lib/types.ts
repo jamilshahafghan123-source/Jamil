@@ -78,7 +78,17 @@ export interface Deal {
   comment: string;
 }
 
-export interface BotStatus {
+/**
+ * The dashboard's own status block, from GET /api/dashboard.
+ *
+ * A DIFFERENT SHAPE from the derived bot state below, and named
+ * differently for that reason. Both were called BotStatus, and because
+ * TypeScript merges same-named interfaces the two silently became one
+ * type carrying every field of both — so reading `pnl_today` off the
+ * derived state, or `state` off this one, type-checked and then came back
+ * undefined at runtime.
+ */
+export interface DashboardBotStatus {
   bot_enabled: boolean;
   emergency_stop: boolean;
   trading_mode: TradingMode;
@@ -94,7 +104,7 @@ export interface DashboardSnapshot {
   account: AccountInfo | null;
   tick: Tick | null;
   positions: Position[];
-  status: BotStatus;
+  status: DashboardBotStatus;
 }
 
 export interface Signal {
@@ -312,6 +322,7 @@ export interface RiskSettings {
   max_spread_points: number;
   trading_mode: TradingMode;
   bot_enabled: boolean;
+  bot_paused: boolean;
   emergency_stop: boolean;
   halted_until_date: string | null;
 }
@@ -871,7 +882,32 @@ export interface BotStatus {
   blocked: boolean;
   active: boolean;
   bot_enabled: boolean;
+  /** A hold, not a stop: enabled, managing what is open, opening nothing. */
+  bot_paused: boolean;
   trading_mode: TradingMode;
   venue: string;
   open_positions: number;
+}
+
+/**
+ * Today's trading, counted from trades that actually closed.
+ *
+ * The day boundary comes back with the figures because "today" on a
+ * 24-hour market is not self-evident, and a P/L whose window the reader
+ * has to guess at is not a P/L.
+ */
+export interface DemoPerformance {
+  day_start: string;
+  day_basis: string;
+  today: {
+    net_pnl: number;
+    trades: number;
+    wins: number;
+    losses: number;
+    breakeven: number;
+    /** Null until there is something to take a rate of. */
+    win_rate: number | null;
+  };
+  open_positions: number;
+  currency: string;
 }

@@ -120,6 +120,7 @@ class RiskSettingsOut(RiskSettingsIn):
     model_config = ConfigDict(from_attributes=True)
     trading_mode: TradingMode
     bot_enabled: bool
+    bot_paused: bool = False
     emergency_stop: bool
     halted_until_date: str | None = None
 
@@ -132,6 +133,10 @@ class ModeChangeRequest(BaseModel):
 
 class BotToggleRequest(BaseModel):
     enabled: bool
+
+
+class BotPauseRequest(BaseModel):
+    paused: bool
 
 
 # ------------------------------------------------------------- ai analysis
