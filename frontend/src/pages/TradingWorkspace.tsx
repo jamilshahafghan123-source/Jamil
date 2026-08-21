@@ -27,6 +27,8 @@ import { BotPanel } from "../components/BotPanel";
 import { QuickTrade } from "../components/QuickTrade";
 import { DataWindow } from "../components/DataWindow";
 import { ReplayBar } from "../components/ReplayBar";
+import { AskPanel } from "../components/AskPanel";
+import { ScreenerPanel } from "../components/ScreenerPanel";
 import {
   NotConfigured, RailPanel, RightRail, type PanelId, type RailItem,
 } from "../components/RightRail";
@@ -135,6 +137,7 @@ const RAIL_ITEMS: RailItem[] = [
   { id: "objects", label: "Object tree", glyph: "\u29C9" },
   { id: "technicals", label: "Technicals", glyph: "\u25A4" },
   { id: "data", label: "Data window", glyph: "\u2637" },
+  { id: "chat", label: "Ask J Gold AI", glyph: "\u25CC" },
   { id: "account", label: "Account", glyph: "$" },
   { id: "news", label: "News", glyph: "\u25A6" },
   { id: "calendar", label: "Calendar", glyph: "\u25A3" },
@@ -1234,11 +1237,9 @@ export function TradingWorkspace({
                 detail="Not enough J Gold AI customer activity to report an aggregate without exposing individuals. A percentage invented to fill this space would be worse than an empty panel."
               />
             )}
-            {panel === "screener" && (
-              <NotConfigured
-                what="Screener"
-                detail="A screener needs live prices across many instruments. With one live feed there is nothing to screen yet."
-              />
+            {panel === "screener" && <ScreenerPanel currentSymbol={symbol} />}
+            {panel === "chat" && (
+              <AskPanel symbol={symbol} timeframe={timeframe} />
             )}
             {panel === "alerts" && <AlertsPanel symbol={symbol} />}
             {panel === "objects" && (
@@ -1304,7 +1305,7 @@ export function TradingWorkspace({
                 ticket. Open Trade to reach it.
               </p>
             )}
-            {(panel === "chat" || panel === "products" ||
+            {(panel === "products" ||
               panel === "help" || panel === "strategies" ||
               panel === "brokers") && (
               <p className="jg-cc-note">
