@@ -652,3 +652,27 @@ async def test_a_same_side_signal_reverses_nothing(env, monkeypatch):
             db, env["user"], signal, settings_row) is False
     async with env["Session"]() as db:
         assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1
+
+
+def test_no_execution_path_can_attach_a_strategy_to_a_position():
+    """`strategy` stays null until a strategy can genuinely execute.
+
+    Nothing in the bot loop, the demo execution path or the broker
+    executor references strategies at all, so a position cannot have come
+    from one. The API reports null rather than omitting the field, so the
+    UI can say "none" instead of guessing what an absence means.
+    """
+    import inspect
+
+    from app.routers import demo as demo_router
+    from app.services import executor
+
+    for module in (bot, demo_execution, executor):
+        source = inspect.getsource(module).lower()
+        assert "strategy" not in source, (
+            f"{module.__name__} references strategies; if one can now "
+            f"execute, the position payload must stop hard-coding null"
+        )
+
+    payload = inspect.getsource(demo_router._position_out)
+    assert '"strategy": None' in payload

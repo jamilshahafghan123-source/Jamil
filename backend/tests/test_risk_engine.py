@@ -390,3 +390,44 @@ def test_eligible_is_not_approved():
     assert thin.approved is False
     assert any("risk/reward" in r.lower() or "rr" in r.lower()
                for r in thin.reasons)
+
+
+def test_nothing_in_the_entry_chain_raises_the_floor_above_the_account():
+    """The floor is 50 all the way through, not just at the last gate.
+
+    Three things read confidence on the way to an order: the setup
+    engine decides whether to emit a signal at all, requirements_for
+    resolves the threshold, and the risk engine applies it. A higher
+    number in ANY of them is a floor the customer cannot see, so all
+    three are checked against the same account setting.
+    """
+    from app.services import opportunity as O
+
+    settings_row = make_settings(min_confidence=50, min_rr=1.5)
+
+    # 1. The setup engine gates on the account's own number.
+    import inspect
+
+    from app.services import setup_engine
+
+    source = inspect.getsource(setup_engine.build_setup)
+    assert 'getattr(risk_settings, "min_confidence"' in source, \
+        "the setup engine must read the account's minimum, not a constant"
+
+    # 2. requirements_for returns exactly it, in every class and regime.
+    for setup_class in O.SetupClass:
+        for regime in list(O.Regime) + [None]:
+            requirement = O.requirements_for(
+                setup_class, regime, account_min_confidence=50,
+                account_min_rr=1.5)
+            assert requirement.min_confidence == 50, (setup_class, regime)
+
+    # 3. The risk engine approves a 50% signal and reports 50 as required.
+    decision = risk_engine.evaluate(
+        action="BUY", entry=2500.30, stop_loss=2490.30, take_profit=2530.30,
+        confidence=50, settings_row=settings_row, account=DEMO_ACCOUNT,
+        symbol_info=SYMBOL_INFO, tick=TICK, open_positions=[], stats=None,
+        server_allows_real=False,
+    )
+    assert decision.required_confidence == 50
+    assert decision.approved is True
