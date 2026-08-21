@@ -86,6 +86,7 @@ export default function App() {
       <TradingWorkspace
         onLogout={signOut}
         onOpenOverview={() => setView("overview")}
+        isOwner
       />
     ) : (
       <Dashboard onLogout={signOut} onOpenWorkspace={() => setView("trade")} />

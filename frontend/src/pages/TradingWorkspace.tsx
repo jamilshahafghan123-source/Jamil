@@ -151,10 +151,12 @@ const PANEL_TITLES: Record<PanelId, string> = {
 export function TradingWorkspace({
   onLogout,
   onOpenOverview,
+  isOwner = false,
 }: {
   onLogout: () => void;
   /** Present whenever this account also has the Overview dashboard. */
   onOpenOverview?: () => void;
+  isOwner?: boolean;
 }) {
   const { t } = useLanguage();
   const [symbol, setSymbol] = useState("XAUUSD");
@@ -207,6 +209,12 @@ export function TradingWorkspace({
   const [panel, setPanel] = useState<PanelId | null>(
     () => (typeof window === "undefined" || window.innerWidth > 900)
       ? "trade" : null,
+  );
+  const visibleRailItems = useMemo(
+    () => isOwner
+      ? RAIL_ITEMS
+      : RAIL_ITEMS.filter((item) => item.id !== "chat"),
+    [isOwner],
   );
   const [bottomOpen, setBottomOpen] = useState(true);
   /**
@@ -1450,7 +1458,7 @@ export function TradingWorkspace({
         )}
 
         <RightRail
-          items={RAIL_ITEMS.map((item) =>
+          items={visibleRailItems.map((item) =>
             item.id === "alerts" ? { ...item, badge: unreadAlerts } : item)}
           active={panel}
           onToggle={(id) => {

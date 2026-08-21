@@ -151,6 +151,26 @@ export const api = {
       body: JSON.stringify({ question }),
     }),
 
+  /** ADMIN-only private conversational market analyst. */
+  ownerTraderAsk: (
+    question: string,
+    symbol: string,
+    timeframe: string,
+    history: { role: "user" | "assistant"; text: string }[] = [],
+  ) =>
+    request<{
+      answer: string;
+      model: string;
+    }>("/api/admin/trader/ask", {
+      method: "POST",
+      body: JSON.stringify({
+        question,
+        symbol,
+        timeframe,
+        history,
+      }),
+    }),
+
   /** Sanitized status any signed-in customer may see. No infrastructure. */
   platformStatus: () =>
     request<{
