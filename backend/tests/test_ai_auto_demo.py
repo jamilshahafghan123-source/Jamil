@@ -31,7 +31,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services import bot, demo_execution
+from app.services import bot, demo_execution, profit_guard
 from app.services.demo_engine import Quote
 
 
@@ -553,5 +553,102 @@ async def test_a_losing_demo_position_is_never_closed_by_this_path(
             assert await bot._manage_profitable_positions(
                 db, env["user"], signal, settings_row) is False
 
+    async with env["Session"]() as db:
+        assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1
+
+
+# ------------------------------ reversal manager: venue, bar, precedence
+
+
+@pytest.mark.asyncio
+async def test_the_reversal_manager_sees_demo_positions(env, monkeypatch):
+    """It read mt5.positions() unconditionally, like the profit manager did.
+
+    On the internal demo venue that is a broker holding none of the bot's
+    trades, so a strong opposite signal closed nothing.
+    """
+    await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    # Below the entry: losing, so the reversal manager owns it.
+    monkeypatch.setattr(bot, "mt5", _StubTick(2990.0, 2990.2))
+
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        signal = _signal(env["user"].id, action=SignalAction.SELL,
+                         confidence=90)
+        closed = await bot._manage_strong_reversal(
+            db, env["user"], signal, settings_row)
+        assert closed is True
+
+    async with env["Session"]() as db:
+        assert (await db.execute(select(DemoPosition))).scalars().all() == []
+        trade = (await db.execute(select(DemoTrade))).scalar_one()
+        assert trade.close_reason == "STRONG_REVERSAL"
+
+
+@pytest.mark.asyncio
+async def test_a_profitable_position_is_left_to_the_profit_guard(
+    env, monkeypatch
+):
+    """The precedence bug: this runs FIRST in the cycle.
+
+    Without the exclusion, one strong opposite reading closed a
+    profitable trade here and the guard's two-cycle confirmation never
+    got to apply — exactly the behaviour the guard exists to prevent.
+    """
+    await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    # Above the entry: in profit.
+    monkeypatch.setattr(bot, "mt5", _StubTick(3020.0, 3020.2))
+
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        signal = _signal(env["user"].id, action=SignalAction.SELL,
+                         confidence=99)
+        closed = await bot._manage_strong_reversal(
+            db, env["user"], signal, settings_row)
+        assert closed is False
+
+    async with env["Session"]() as db:
+        assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_reversal_bar_is_not_the_entry_floor(env, monkeypatch):
+    """Lowering the entry floor to 50 must not halve reversal protection.
+
+    These were the same number, so item 2 silently weakened this path.
+    """
+    await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    monkeypatch.setattr(bot, "mt5", _StubTick(2990.0, 2990.2))
+
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.min_confidence = 50
+        # Comfortably over the entry floor, under the reversal bar.
+        signal = _signal(env["user"].id, action=SignalAction.SELL,
+                         confidence=profit_guard.REVERSAL_CONFIDENCE - 1)
+        assert await bot._manage_strong_reversal(
+            db, env["user"], signal, settings_row) is False
+
+    async with env["Session"]() as db:
+        assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1
+
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        signal = _signal(env["user"].id, action=SignalAction.SELL,
+                         confidence=profit_guard.REVERSAL_CONFIDENCE)
+        assert await bot._manage_strong_reversal(
+            db, env["user"], signal, settings_row) is True
+
+
+@pytest.mark.asyncio
+async def test_a_same_side_signal_reverses_nothing(env, monkeypatch):
+    await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    monkeypatch.setattr(bot, "mt5", _StubTick(2990.0, 2990.2))
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        signal = _signal(env["user"].id, action=SignalAction.BUY,
+                         confidence=99)
+        assert await bot._manage_strong_reversal(
+            db, env["user"], signal, settings_row) is False
     async with env["Session"]() as db:
         assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1

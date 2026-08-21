@@ -405,29 +405,135 @@ async def _manage_strong_reversal(
     signal,
     settings_row: RiskSettings,
 ) -> bool:
-    """Close an existing position when a strong opposite AI signal appears.
+    """Close a LOSING position when a strong opposite AI signal appears.
 
-    The bot does NOT open the opposite trade in the same cycle.  It waits
-    until the next cycle, re-runs analysis, and only enters if the opposite
-    setup is still valid.
+    The bot does NOT open the opposite trade in the same cycle. It waits
+    until the next cycle, re-runs analysis, and only enters if the
+    opposite setup is still valid.
+
+    PROFITABLE POSITIONS ARE NOT THIS FUNCTION'S BUSINESS. They belong to
+    the profit guard, which requires two consecutive weakening cycles plus
+    corroboration before closing. This runs first in the cycle, so without
+    that exclusion one strong opposite reading would close a profitable
+    trade here and the guard's confirmation rule would never get to
+    apply — the exact "closed on one candle" behaviour the guard exists
+    to prevent. A losing position is the opposite case: holding it against
+    a confirmed strong reversal is the greater risk, and the hard stop
+    loss is still underneath it either way.
+
+    The confidence bar is REVERSAL_CONFIDENCE, not the account's entry
+    minimum. Those are different decisions and were briefly the same
+    number, which meant lowering the entry floor to 50 quietly halved the
+    evidence needed to close an open trade.
     """
     if signal is None or signal.action == SignalAction.NO_TRADE:
         return False
 
     ai_action = signal.action.value
     ai_confidence = int(signal.confidence or 0)
-    min_confidence = int(settings_row.min_confidence or 80)
 
-    if ai_confidence < min_confidence:
+    if ai_confidence < profit_guard.REVERSAL_CONFIDENCE:
         return False
 
+    if settings_row.execution_venue is ExecutionVenue.JGOLD_DEMO:
+        return await _reverse_demo(db, user, ai_action, ai_confidence)
+    return await _reverse_broker(db, user, ai_action, ai_confidence)
+
+
+async def _reverse_demo(
+    db: AsyncSession, user: User, ai_action: str, ai_confidence: int
+) -> bool:
+    """The internal demo venue. Closes through the demo engine only."""
+    account = await demo_execution.account_for(db, user.id)
+    positions = list(
+        (
+            await db.execute(
+                select(DemoPosition).where(DemoPosition.account_id == account.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not positions:
+        return False
+
+    try:
+        tick = await mt5.tick()
+        quote = demo_execution.demo_engine.Quote(
+            bid=float(tick.get("bid") or 0.0), ask=float(tick.get("ask") or 0.0)
+        )
+    except Exception:  # noqa: BLE001 - no price means no decision
+        log.warning("reversal manager: no price for user %s", user.id)
+        return False
+    if quote.bid <= 0 or quote.ask <= 0:
+        return False
+
+    closed_any = False
+    for position in positions:
+        side = position.side.value
+        if side == ai_action:
+            continue
+
+        try:
+            instrument = instruments.get(position.symbol)
+            profit = demo_execution.demo_engine.position_pnl(
+                position, quote, instrument
+            )
+        except Exception:  # noqa: BLE001 - an unpriceable position is skipped
+            continue
+
+        if profit > 0:
+            log.info(
+                "reversal manager DEFERS position=%s side=%s profit=%.2f: "
+                "in profit, so the profit guard's confirmation rule owns it",
+                position.id, side, profit,
+            )
+            continue
+
+        reason = (
+            f"strong_reversal: existing={side}, new={ai_action}, "
+            f"confidence={ai_confidence}, "
+            f"min={profit_guard.REVERSAL_CONFIDENCE}, profit={profit:.2f}"
+        )
+        trade = demo_execution.demo_engine.close_position(
+            account, position, quote, reason="STRONG_REVERSAL",
+        )
+        db.add(trade)
+        await db.delete(position)
+        await db.commit()
+        _profit_state.clear(_guard_key(user.id, "JGOLD_DEMO", position.id))
+        closed_any = True
+
+        await audit.record(
+            db,
+            audit.POSITION_CLOSED,
+            {
+                "venue": "JGOLD_DEMO",
+                "position_id": position.id,
+                "stage": "STRONG_REVERSAL",
+                "reason": reason,
+                "realized_pnl": trade.realized_pnl,
+            },
+            user.id,
+        )
+        log.warning(
+            "STRONG REVERSAL CLOSE venue=JGOLD_DEMO position=%s old=%s "
+            "new=%s confidence=%s realised=%.2f",
+            position.id, side, ai_action, ai_confidence, trade.realized_pnl,
+        )
+
+    return closed_any
+
+
+async def _reverse_broker(
+    db: AsyncSession, user: User, ai_action: str, ai_confidence: int
+) -> bool:
+    """The broker venue. Unchanged in how it closes; only in when."""
     try:
         positions = await mt5.positions()
     except BridgeError as e:
         log.warning(
-            "reversal manager: bridge unavailable for user %s: %s",
-            user.id,
-            e,
+            "reversal manager: bridge unavailable for user %s: %s", user.id, e,
         )
         return False
 
@@ -449,10 +555,18 @@ async def _manage_strong_reversal(
         ticket = int(position["ticket"])
         profit = float(position.get("profit") or 0.0)
 
+        if profit > 0:
+            log.info(
+                "reversal manager DEFERS ticket=%s side=%s profit=%.2f: "
+                "in profit, so the profit guard's confirmation rule owns it",
+                ticket, side, profit,
+            )
+            continue
+
         reason = (
             f"strong_reversal: existing={side}, new={ai_action}, "
-            f"confidence={ai_confidence}, min={min_confidence}, "
-            f"profit={profit:.2f}"
+            f"confidence={ai_confidence}, "
+            f"min={profit_guard.REVERSAL_CONFIDENCE}, profit={profit:.2f}"
         )
 
         result = await executor.close_position(
@@ -464,6 +578,7 @@ async def _manage_strong_reversal(
 
         if result.get("success"):
             closed_any = True
+            _profit_state.clear(_guard_key(user.id, "MT5", ticket))
             log.warning(
                 "STRONG REVERSAL CLOSE ticket=%s old=%s new=%s "
                 "confidence=%s profit=%.2f",
