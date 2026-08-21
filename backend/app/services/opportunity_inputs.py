@@ -265,3 +265,26 @@ def entry_inputs(analysis: dict) -> tuple[str | None, float | None]:
     if not atr or entry is None or stop is None or float(atr) <= 0:
         return trigger, None
     return trigger, abs(float(entry) - float(stop)) / float(atr)
+
+
+def structure_state(analysis: dict) -> str:
+    """The market-structure pattern this setup was read from.
+
+    One of the five fields a duplicate fingerprint is built from
+    (section 48), and the one that carries the setup's CONTEXT: a break
+    of structure that later turns into a higher-high/higher-low
+    continuation is a genuinely different setup, and the fingerprint has
+    to be able to say so.
+
+    Falls back to "UNKNOWN" rather than to the empty string. Two setups
+    read at moments when structure could not be determined are still the
+    same unreadable market, and should still share a cooldown.
+    """
+    detail = analysis.get("structure")
+    if isinstance(detail, dict):
+        pattern = detail.get("pattern")
+    else:
+        # Some consumers flatten `structure` to the pattern string itself.
+        pattern = detail
+    text = str(pattern or "").strip().upper()
+    return text or "UNKNOWN"

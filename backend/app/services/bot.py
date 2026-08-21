@@ -783,6 +783,46 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
                       user.id)
         return
 
+    # ---- DUPLICATE / COOLDOWN (section 48) ---------------------------
+    #
+    # The engine re-reads the same market every 60 seconds, so a setup
+    # that stands for an hour is detected sixty times. Without this the
+    # bot would enter it sixty times.
+    #
+    # THIS ONLY EVER REFUSES. It runs before the risk engine, adds no
+    # approval of its own, and every gate that applied before still
+    # applies to whatever passes it. A setup it lets through is still
+    # subject to confidence, R:R, spread, grade, the position cap, the
+    # daily loss limit, sizing and the emergency stop, unchanged.
+    structure = opportunity_inputs.structure_state(analysis)
+    entry_level = float(signal.entry or 0.0)
+    duplicate = False
+    duplicate_reason = ""
+    if may_open:
+        try:
+            setup_class = opportunity.SetupClass(graded["setup_class"])
+            fingerprint = opportunity.Fingerprint.build(
+                signal.symbol, signal.action.value, setup_class,
+                structure, entry_level,
+            )
+            duplicate, duplicate_reason = opportunity.is_duplicate(
+                fingerprint,
+                telemetry.fingerprints(
+                    await telemetry.recent_fingerprints(
+                        db, user.id, signal.symbol, entered_only=True,
+                    )
+                ),
+                setup_class,
+                now,
+            )
+        except Exception:  # noqa: BLE001 - a failed check must not block
+            # Failing open is the right way round here. This mechanism
+            # exists to stop repetition, not to authorise trades, and a
+            # lookup that fell over is not a reason to refuse a setup
+            # every other gate is about to rule on properly.
+            log.warning("duplicate check failed for user %s", user.id,
+                        exc_info=True)
+
     try:
         opportunity_id = await telemetry.record_opportunity(
             db,
@@ -798,14 +838,28 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             required_rr=graded["requirements"]["min_rr"],
             ai_decision=graded["decision"],
             session=opportunity_inputs.session_label(now),
-            rejection_reason="; ".join(graded["reasons"]) or None,
+            rejection_reason=duplicate_reason
+            or "; ".join(graded["reasons"]) or None,
             score_breakdown=graded["score"],
+            # The two fields that let this detection be recognised again
+            # next cycle, plus what was decided about it this cycle.
+            structure_state=structure,
+            entry_price=entry_level,
+            suppressed_as_duplicate=duplicate,
         )
     except Exception:  # noqa: BLE001 - telemetry never blocks trading
         # Recording is reporting. Losing it costs the audit trail, not
         # the trade.
         log.warning("opportunity telemetry failed for user %s", user.id,
                     exc_info=True)
+
+    if duplicate:
+        await telemetry.record_execution(
+            db, opportunity_id, result="REJECTED", reason=duplicate_reason,
+        )
+        log.info("bot cycle user=%s suppressed duplicate: %s",
+                 user.id, duplicate_reason)
+        return
 
     if not may_open:
         await telemetry.record_execution(

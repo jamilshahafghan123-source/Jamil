@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import OpportunityLog
+from . import opportunity
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,9 @@ async def record_opportunity(
     session: str = "",
     rejection_reason: str | None = None,
     score_breakdown: dict | None = None,
+    structure_state: str | None = None,
+    entry_price: float | None = None,
+    suppressed_as_duplicate: bool = False,
 ) -> int | None:
     """Write the AI's half of the record. Returns the row id, or None.
 
@@ -63,6 +67,9 @@ async def record_opportunity(
         ai_decision=ai_decision,
         rejection_reason=rejection_reason,
         score_breakdown=score_breakdown or {},
+        structure_state=structure_state,
+        entry_price=entry_price,
+        suppressed_as_duplicate=suppressed_as_duplicate,
     )
     try:
         db.add(row)
@@ -139,17 +146,59 @@ async def record_outcome(
 
 async def recent_fingerprints(
     db: AsyncSession, user_id: int, symbol: str, limit: int = 40,
+    entered_only: bool = False,
 ) -> list[OpportunityLog]:
-    """Recent detections, for the duplicate/cooldown check (section 48)."""
+    """Recent detections, for the duplicate/cooldown check (section 48).
+
+    `entered_only` narrows the answer to detections that actually became
+    a position. That is the set the cooldown is measured against, and the
+    narrowing is what keeps the rule honest in both directions: a
+    suppressed detection never FILLED, so a setup that persists for an
+    hour cannot keep refreshing its own cooldown; and a detection the
+    risk engine refused never FILLED either, so a setup blocked by the
+    position cap is still tradeable the moment the cap clears rather than
+    serving a cooldown for a trade that never happened.
+    """
+    query = select(OpportunityLog).where(
+        OpportunityLog.user_id == user_id,
+        OpportunityLog.symbol == symbol.upper(),
+    )
+    if entered_only:
+        query = query.where(OpportunityLog.execution_result == "FILLED")
     rows = (
         await db.execute(
-            select(OpportunityLog)
-            .where(
-                OpportunityLog.user_id == user_id,
-                OpportunityLog.symbol == symbol.upper(),
-            )
-            .order_by(OpportunityLog.detected_at.desc())
-            .limit(limit)
+            query.order_by(OpportunityLog.detected_at.desc()).limit(limit)
         )
     ).scalars().all()
     return list(rows)
+
+
+def fingerprints(
+    rows: list[OpportunityLog],
+) -> list[tuple[opportunity.Fingerprint, datetime]]:
+    """Rebuild fingerprints from stored detections.
+
+    A row that cannot produce one is SKIPPED rather than guessed at.
+    Rows written before migration 014 have no structure state and no
+    entry price, and inventing "UNKNOWN"/0.0 for them would let a row
+    from last month collide with a live setup and suppress it. A
+    fingerprint that cannot be rebuilt simply is not a match.
+    """
+    out: list[tuple[opportunity.Fingerprint, datetime]] = []
+    for row in rows:
+        if not row.structure_state or row.entry_price is None:
+            continue
+        try:
+            setup_class = opportunity.SetupClass(row.setup_class)
+        except ValueError:
+            # A class this build no longer recognises cannot be compared
+            # against one it does.
+            continue
+        out.append((
+            opportunity.Fingerprint.build(
+                row.symbol, row.direction, setup_class,
+                row.structure_state, float(row.entry_price),
+            ),
+            row.detected_at,
+        ))
+    return out
