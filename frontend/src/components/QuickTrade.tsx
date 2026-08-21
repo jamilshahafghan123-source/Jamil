@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { money } from "../lib/format";
 import type { InstrumentInfo } from "../lib/types";
 
 /**
@@ -13,11 +14,17 @@ import type { InstrumentInfo } from "../lib/types";
  * universal constant, and the Central Risk Manager still rules on
  * everything afterwards — a lot this control accepts is not a lot the
  * platform has agreed to trade.
+ *
+ * What the stop and target are WORTH is shown here rather than left for
+ * the customer to work out from tick value and contract size. Deciding
+ * whether a trade is worth taking without knowing what it risks is the
+ * part of manual trading that goes wrong, and the arithmetic is the
+ * platform's to do.
  */
 export function QuickTrade({
   instrument, bid, ask, volume, onVolume, side, onSide,
   stopLoss, takeProfit, onStopLoss, onTakeProfit, onPlace,
-  disabled, disabledReason, onHide,
+  disabled, disabledReason, onHide, estimate, currency = "USD",
 }: {
   instrument: InstrumentInfo | null;
   bid: number | null;
@@ -34,6 +41,19 @@ export function QuickTrade({
   disabled: boolean;
   disabledReason?: string | null;
   onHide: () => void;
+  /**
+   * Computed by the workspace from the instrument's own tick maths. Null
+   * members mean the figure cannot be derived yet — no stop, no price, an
+   * unparseable volume — and are shown as such rather than as zero.
+   */
+  estimate: {
+    entry: number;
+    risk: number | null;
+    reward: number | null;
+    rr: number | null;
+    fault: string | null;
+  } | null;
+  currency?: string;
 }) {
   const step = instrument?.volume_step ?? 0.01;
   const min = instrument?.min_volume ?? 0.01;
@@ -130,8 +150,34 @@ export function QuickTrade({
         </label>
       </div>
 
+      <dl className="jg-quick-estimate">
+        <div>
+          <dt>RISK</dt>
+          <dd className={estimate?.risk != null ? "loss" : undefined}
+              title="What this trade loses if the stop is hit">
+            {estimate?.risk != null ? money(estimate.risk, currency) : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>PROFIT</dt>
+          <dd className={estimate?.reward != null ? "gain" : undefined}
+              title="What this trade makes if the target is hit">
+            {estimate?.reward != null ? money(estimate.reward, currency) : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>R:R</dt>
+          <dd title="Reward divided by risk. Needs both a stop and a target.">
+            {estimate?.rr != null ? estimate.rr.toFixed(2) : "—"}
+          </dd>
+        </div>
+      </dl>
+
       {invalid && <p className="jg-quick-invalid">{invalid}</p>}
-      {!invalid && disabledReason && (
+      {!invalid && estimate?.fault && (
+        <p className="jg-quick-invalid">{estimate.fault}</p>
+      )}
+      {!invalid && !estimate?.fault && disabledReason && (
         <p className="jg-quick-invalid">{disabledReason}</p>
       )}
 

@@ -3768,6 +3768,36 @@ th.right {
   font-size: 12px;
   line-height: 1;
 }
+/* Risk, profit and R:R for the quick ticket. Three narrow cells rather
+   than a definition list down the side: the panel sits over the chart and
+   every row it grows is a row of price the customer cannot see. */
+.jg-quick-estimate {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 7px 0 0;
+  padding: 5px 4px;
+  border: 1px solid var(--line, #232833);
+  border-radius: 6px;
+  background: rgba(11, 13, 16, 0.6);
+}
+.jg-quick-estimate > div { min-width: 0; text-align: center; }
+.jg-quick-estimate dt {
+  font-size: 8px;
+  letter-spacing: 0.07em;
+  color: var(--muted, #8b93a1);
+}
+.jg-quick-estimate dd {
+  margin: 2px 0 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jg-quick-estimate dd.loss { color: #f4564a; }
+.jg-quick-estimate dd.gain { color: #3fb950; }
+
 .jg-quick-invalid {
   margin: 6px 0 0;
   font-size: 10px;

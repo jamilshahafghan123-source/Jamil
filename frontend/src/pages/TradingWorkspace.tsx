@@ -29,6 +29,7 @@ import { DataWindow } from "../components/DataWindow";
 import { ReplayBar } from "../components/ReplayBar";
 import { AskPanel } from "../components/AskPanel";
 import { DrawingStyleBar } from "../components/DrawingStyleBar";
+import { money } from "../lib/format";
 import { ScreenerPanel } from "../components/ScreenerPanel";
 import {
   NotConfigured, RailPanel, RightRail, type PanelId, type RailItem,
@@ -110,15 +111,6 @@ const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
 
 /** Bars per timeframe. Enough for context without over-fetching. */
 const BAR_COUNT = 300;
-
-function money(value: number | null | undefined, currency = "USD"): string {
-  if (value === null || value === undefined) return "—";
-  const sign = value < 0 ? "-" : "";
-  return `${sign}${currency} ${Math.abs(value).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
 
 function pnlClass(value: number | null | undefined): string {
   if (value === null || value === undefined || value === 0) return "";
@@ -419,12 +411,29 @@ export function TradingWorkspace({
     if (!price || !instrument || !Number.isFinite(parsedVolume)) return null;
     const entry = side === "BUY" ? price.ask : price.bid;
     const perUnit = (instrument.tick_value / instrument.tick_size) * parsedVolume;
-    const risk =
-      parsedSl != null ? Math.abs(entry - parsedSl) * perUnit : null;
-    const reward =
-      parsedTp != null ? Math.abs(parsedTp - entry) * perUnit : null;
+
+    // A stop on the wrong side of entry is not a small risk — it is not a
+    // stop at all. Taking the absolute distance would turn that mistake
+    // into a confident-looking number and a flattering R:R, so the side is
+    // checked and the fault is reported instead of averaged away.
+    const stopBehind = parsedSl == null
+      ? null : side === "BUY" ? parsedSl < entry : parsedSl > entry;
+    const targetAhead = parsedTp == null
+      ? null : side === "BUY" ? parsedTp > entry : parsedTp < entry;
+
+    const risk = stopBehind ? Math.abs(entry - parsedSl!) * perUnit : null;
+    const reward = targetAhead ? Math.abs(parsedTp! - entry) * perUnit : null;
     const rr = risk && reward && risk > 0 ? reward / risk : null;
-    return { entry, risk, reward, rr };
+
+    const at = entry.toFixed(instrument.digits);
+    const fault =
+      stopBehind === false
+        ? `A ${side} stop belongs ${side === "BUY" ? "below" : "above"} ${at}`
+        : targetAhead === false
+        ? `A ${side} target belongs ${side === "BUY" ? "above" : "below"} ${at}`
+        : null;
+
+    return { entry, risk, reward, rr, fault };
   }, [price, instrument, parsedVolume, parsedSl, parsedTp, side]);
 
   /**
@@ -1017,6 +1026,8 @@ export function TradingWorkspace({
                     ? "Replay is showing past candles — trading is paused."
                     : account?.blocked_reason ?? null}
                   onHide={() => setQuickTrade(false)}
+                  estimate={estimate}
+                  currency={acct?.currency ?? "USD"}
                 />
               )}
               <TradingChart
@@ -1149,13 +1160,25 @@ export function TradingWorkspace({
             </div>
             <div>
               <dt>Risk</dt>
-              <dd>{estimate?.risk != null ? money(estimate.risk) : "—"}</dd>
+              <dd>
+                {estimate?.risk != null
+                  ? money(estimate.risk, acct?.currency) : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Profit</dt>
+              <dd>
+                {estimate?.reward != null
+                  ? money(estimate.reward, acct?.currency) : "—"}
+              </dd>
             </div>
             <div>
               <dt>R:R</dt>
               <dd>{estimate?.rr != null ? estimate.rr.toFixed(2) : "—"}</dd>
             </div>
           </dl>
+
+          {estimate?.fault && <p className="jg-ws-error">{estimate.fault}</p>}
 
           {ticketError && <p className="jg-ws-error">{ticketError}</p>}
 
@@ -1537,9 +1560,17 @@ export function TradingWorkspace({
               <div><dt>Entry</dt><dd>{estimate ? estimate.entry.toFixed(2) : "—"}</dd></div>
               <div><dt>Stop loss</dt><dd>{parsedSl?.toFixed(2) ?? "none"}</dd></div>
               <div><dt>Take profit</dt><dd>{parsedTp?.toFixed(2) ?? "none"}</dd></div>
-              <div><dt>Risk</dt><dd>{estimate?.risk != null ? money(estimate.risk) : "—"}</dd></div>
+              <div><dt>Risk</dt><dd>
+                {estimate?.risk != null
+                  ? money(estimate.risk, acct?.currency) : "—"}</dd></div>
+              <div><dt>Profit</dt><dd>
+                {estimate?.reward != null
+                  ? money(estimate.reward, acct?.currency) : "—"}</dd></div>
               <div><dt>R:R</dt><dd>{estimate?.rr != null ? estimate.rr.toFixed(2) : "—"}</dd></div>
             </dl>
+            {estimate?.fault && (
+              <p className="jg-ws-error">{estimate.fault}</p>
+            )}
             <div className="jg-confirm-actions">
               <button type="button" className="btn" onClick={() => setConfirming(false)}>
                 Cancel

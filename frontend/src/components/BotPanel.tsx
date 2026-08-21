@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { money } from "../lib/format";
 import type {
   BotStatus, DemoAccountResponse, DemoPosition, RiskSettings,
 } from "../lib/types";
@@ -32,12 +33,6 @@ const STATE_TONE: Record<string, string> = {
   MARKET_DATA_ERROR: "danger",
   CONNECTION_ERROR: "danger",
 };
-
-function money(value: number | null | undefined, currency = "USD"): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${currency} ${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 export function BotPanel({
   account, positions, risk, onRiskChange,
