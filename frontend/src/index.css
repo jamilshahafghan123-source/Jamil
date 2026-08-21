@@ -3537,3 +3537,8 @@ th.right {
 }
 .jg-pane-close:hover { color: #f4564a; }
 .jg-pane-canvas { width: 100%; }
+
+/* Endpoint handles appear only on a selected, unlocked shape, so they
+   never clutter the chart or imply an edit that would be refused. */
+.jg-draw-handle { cursor: grab; }
+.jg-draw-handle:active { cursor: grabbing; }

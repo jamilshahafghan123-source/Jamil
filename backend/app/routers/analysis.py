@@ -16,6 +16,7 @@ from ..schemas import SignalOut
 from ..services import bot
 from ..services.indicators import TIMEFRAMES
 from ..services.mt5_client import BridgeError, mt5
+from ..services import replay as replay_service
 from ..services import sessions as session_map
 
 router = APIRouter(
@@ -153,3 +154,13 @@ async def market_sessions(
             for s in session_map.SESSIONS
         ],
     }
+
+
+@router.get("/replay/capabilities")
+async def replay_capabilities(_: User = Depends(current_user)) -> dict:
+    """What replay and backtesting can honestly do (section 63).
+
+    Served rather than hard-coded in the UI, so a badge cannot drift out
+    of step with what the backend actually supports.
+    """
+    return replay_service.capabilities()

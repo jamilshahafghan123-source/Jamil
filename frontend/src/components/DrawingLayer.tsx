@@ -15,7 +15,10 @@ import type { ChartCoordinates } from "./TradingChart";
  * systems, not two flags on one list.
  *
  * WHAT THIS SUPPORTS, honestly: place, select, move, delete, lock, hide,
- * undo, redo and clear. Resizing an existing shape by dragging a single
+ * undo, redo and clear. A SELECTED, unlocked shape shows a handle on
+ * each of its points: dragging one reshapes the shape, leaving the other
+ * end anchored, while dragging the body still moves the whole thing.
+ * (Previously only whole-shape moves were supported.) Resizing a single
  * handle is *not* implemented — the toolbar does not offer it, rather than
  * offering a handle that does nothing.
  */
@@ -89,7 +92,14 @@ export function DrawingLayer({
   const host = useRef<HTMLDivElement | null>(null);
   const [pending, setPending] = useState<Point[]>([]);
   const [, forceRepaint] = useState(0);
-  const drag = useRef<{ id: number | string; from: Point } | null>(null);
+  // `pointIndex` distinguishes reshaping from moving: with it set the
+  // drag moves ONE endpoint, without it the whole shape travels.
+  // Set on mousedown over a shape or handle, and consumed by the click
+  // that follows, so a shape-click never reaches the deselect path.
+  const justInteracted = useRef(false);
+  const drag = useRef<
+    { id: number | string; from: Point; pointIndex?: number } | null
+  >(null);
 
   // Repaint on every pan, zoom and resize — the projection changes even
   // though the data has not.
@@ -98,22 +108,35 @@ export function DrawingLayer({
     return coords.subscribe(() => forceRepaint((n) => n + 1));
   }, [coords]);
 
-  const toPoint = useCallback(
-    (event: React.MouseEvent): Point | null => {
+  const pointAt = useCallback(
+    (clientX: number, clientY: number): Point | null => {
       if (!coords || !host.current) return null;
       const box = host.current.getBoundingClientRect();
-      const x = event.clientX - box.left;
-      const y = event.clientY - box.top;
-      const time = coords.xToTime(x);
-      const price = coords.yToPrice(y);
+      const time = coords.xToTime(clientX - box.left);
+      const price = coords.yToPrice(clientY - box.top);
       if (time == null || price == null) return null;
       return { time, price };
     },
     [coords],
   );
 
+  const toPoint = useCallback(
+    (event: React.MouseEvent): Point | null =>
+      pointAt(event.clientX, event.clientY),
+    [pointAt],
+  );
+
   function handleClick(event: React.MouseEvent) {
     if (tool === "CURSOR") {
+      // A click that started ON a shape has already selected it via
+      // startDrag's mousedown. The click event still bubbles up to this
+      // container afterwards, and clearing the selection here would undo
+      // the selection the user just made — which is why selecting a shape
+      // appeared not to work at all. Only a click on empty chart clears.
+      if (justInteracted.current) {
+        justInteracted.current = false;
+        return;
+      }
       onSelect(null);
       return;
     }
@@ -149,22 +172,47 @@ export function DrawingLayer({
   function startDrag(event: React.MouseEvent, drawing: Drawing) {
     if (tool !== "CURSOR" || drawing.locked) return;
     event.stopPropagation();
+    justInteracted.current = true;
     onSelect(drawing.id);
     const point = toPoint(event);
     if (point) drag.current = { id: drawing.id, from: point };
   }
 
-  function handleMouseUp(event: React.MouseEvent) {
+  /** Grab one endpoint. Reshapes rather than moves. */
+  function startHandleDrag(
+    event: React.MouseEvent, drawing: Drawing, pointIndex: number,
+  ) {
+    if (tool !== "CURSOR" || drawing.locked) return;
+    event.stopPropagation();
+    justInteracted.current = true;
+    onSelect(drawing.id);
+    const point = toPoint(event);
+    if (point) drag.current = { id: drawing.id, from: point, pointIndex };
+  }
+
+  const finishDrag = useCallback((clientX: number, clientY: number) => {
     const active = drag.current;
     drag.current = null;
     if (!active) return;
-    const to = toPoint(event);
+    const to = pointAt(clientX, clientY);
     if (!to) return;
     const drawing = drawings.find((d) => d.id === active.id);
     if (!drawing || drawing.locked) return;
 
-    // Move by the delta in *data* space, so a drag means the same thing at
-    // any zoom level.
+    // Reshaping: only the grabbed endpoint takes the new position, so the
+    // opposite end stays anchored exactly where the user left it.
+    if (active.pointIndex != null) {
+      const index = active.pointIndex;
+      if (index < 0 || index >= drawing.points.length) return;
+      onMove(
+        drawing.id,
+        drawing.points.map((p, i) => (i === index ? to : p)),
+      );
+      return;
+    }
+
+    // Moving: shift by the delta in *data* space, so a drag means the same
+    // thing at any zoom level.
     const dPrice = to.price - active.from.price;
     const dMs = Date.parse(to.time) - Date.parse(active.from.time);
     if (dPrice === 0 && dMs === 0) return;
@@ -175,7 +223,23 @@ export function DrawingLayer({
         time: new Date(Date.parse(p.time) + dMs).toISOString(),
       })),
     );
-  }
+  }, [pointAt, drawings, onMove]);
+
+  /**
+   * Finish drags on the window.
+   *
+   * With the cursor tool this layer sets pointer-events:none so the chart
+   * underneath stays interactive, which means its own mouseup never
+   * fires. Listening on the window is what makes a drag that ends
+   * anywhere — including outside the chart — still land.
+   */
+  useEffect(() => {
+    const onUp = (event: MouseEvent) => {
+      if (drag.current) finishDrag(event.clientX, event.clientY);
+    };
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [finishDrag]);
 
   const width = host.current?.clientWidth ?? 0;
   const height = host.current?.clientHeight ?? 0;
@@ -185,7 +249,6 @@ export function DrawingLayer({
       ref={host}
       className={`jg-draw-layer ${tool === "CURSOR" ? "cursor" : "drawing"}`}
       onClick={handleClick}
-      onMouseUp={handleMouseUp}
     >
       <svg width="100%" height="100%">
         {drawings.map((drawing) => {
@@ -301,6 +364,32 @@ export function DrawingLayer({
               return null;
           }
         })}
+
+        {/* Endpoint handles on the selected shape. Only a selected,
+            unlocked shape gets them, so they never clutter the chart and
+            never suggest an edit that would be refused. */}
+        {(() => {
+          if (tool !== "CURSOR" || selectedId == null) return null;
+          const drawing = drawings.find((d) => d.id === selectedId);
+          if (!drawing || drawing.locked || drawing.hidden) return null;
+          return drawing.points.map((point, index) => {
+            const projected = project(point);
+            if (!projected) return null;
+            return (
+              <circle
+                key={`handle-${index}`}
+                cx={projected.x}
+                cy={projected.y}
+                r={5}
+                fill="#0f1115"
+                stroke={SELECTED}
+                strokeWidth={2}
+                className="jg-draw-handle"
+                onMouseDown={(e) => startHandleDrag(e, drawing, index)}
+              />
+            );
+          });
+        })()}
 
         {/* First click of a two-point shape, so the user can see it landed. */}
         {pending.map((p, i) => {
