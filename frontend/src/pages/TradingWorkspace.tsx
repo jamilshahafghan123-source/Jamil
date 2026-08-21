@@ -230,6 +230,14 @@ export function TradingWorkspace({
    * click WITHOUT deleting anything — hiding and clearing are different
    * intentions and must not share a button.
    */
+  /**
+   * Unacknowledged alerts, for the rail badge.
+   *
+   * Alerts fire on their own now, so a customer who is watching the
+   * chart needs to know one arrived without opening the panel to check.
+   * The rail already supports a badge; nothing was supplying it.
+   */
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [showDrawings, setShowDrawings] = useState(true);
   const [showIndicators, setShowIndicators] = useState(true);
   const [visibleRange, setVisibleRange] = useState<string>("1D");
@@ -402,6 +410,16 @@ export function TradingWorkspace({
     void api.getRisk().then(setRisk).catch(() => setRisk(null));
   }, [loadAccount, loadTrades, loadSignals]);
 
+  const loadAlertCount = useCallback(async () => {
+    try {
+      setUnreadAlerts((await api.alerts()).unacknowledged);
+    } catch {
+      // A count is not worth an error banner. Leave the last known one.
+    }
+  }, []);
+
+  useEffect(() => { void loadAlertCount(); }, [loadAlertCount]);
+
   // One poll for account state. Bars refresh on the same beat rather than
   // running a second timer against the same backend.
   useEffect(() => {
@@ -409,9 +427,10 @@ export function TradingWorkspace({
       void loadAccount();
       void loadBars();
       void loadSessions();
+      void loadAlertCount();
     }, 15_000);
     return () => window.clearInterval(t);
-  }, [loadAccount, loadBars, loadSessions]);
+  }, [loadAccount, loadBars, loadSessions, loadAlertCount]);
 
   const price = account?.market_price ?? null;
 
@@ -1362,7 +1381,9 @@ export function TradingWorkspace({
             {panel === "chat" && (
               <AskPanel symbol={symbol} timeframe={timeframe} />
             )}
-            {panel === "alerts" && <AlertsPanel symbol={symbol} />}
+            {panel === "alerts" && (
+              <AlertsPanel symbol={symbol} onChanged={loadAlertCount} />
+            )}
             {panel === "objects" && (
               <ObjectTree
                 drawings={draw.drawings}
@@ -1428,8 +1449,16 @@ export function TradingWorkspace({
           </RailPanel>
         )}
 
-        <RightRail items={RAIL_ITEMS} active={panel}
-                   onToggle={(id) => setPanel(panel === id ? null : id)} />
+        <RightRail
+          items={RAIL_ITEMS.map((item) =>
+            item.id === "alerts" ? { ...item, badge: unreadAlerts } : item)}
+          active={panel}
+          onToggle={(id) => {
+            setPanel(panel === id ? null : id);
+            // Opening the panel is when the count is most likely stale.
+            if (id === "alerts") void loadAlertCount();
+          }}
+        />
       </div>
 
       {/* ------------------------------------------ positions / history */}

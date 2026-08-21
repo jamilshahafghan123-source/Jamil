@@ -15,7 +15,17 @@ import type { AlertKindInfo, CustomerAlert } from "../lib/types";
  * actually needs one, so an alert that could never fire cannot be
  * assembled here — the backend refuses it too.
  */
-export function AlertsPanel({ symbol }: { symbol: string }) {
+export function AlertsPanel({ symbol, onChanged }: {
+  symbol: string;
+  /**
+   * Called after anything that could change the unacknowledged count.
+   *
+   * The rail badge lives outside this panel, so dismissing an alert in
+   * here has to say so — otherwise the badge keeps claiming an alert is
+   * waiting until the next poll happens to notice.
+   */
+  onChanged?: () => void;
+}) {
   const [kinds, setKinds] = useState<AlertKindInfo[]>([]);
   const [deliveryNote, setDeliveryNote] = useState("");
   const [alerts, setAlerts] = useState<CustomerAlert[]>([]);
@@ -72,6 +82,7 @@ export function AlertsPanel({ symbol }: { symbol: string }) {
     try {
       await fn();
       await refresh();
+      onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {
