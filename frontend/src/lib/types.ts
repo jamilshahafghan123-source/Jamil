@@ -824,3 +824,39 @@ export interface OpportunityFeed {
   note?: string;
   customers?: number;
 }
+
+/** Alerts (section 62). In-app delivery only — no channel to choose. */
+export interface AlertKindInfo {
+  kind: string;
+  label: string;
+  needs_threshold: boolean;
+  needs_session: boolean;
+}
+
+export interface AlertKinds {
+  kinds: AlertKindInfo[];
+  delivery: string;
+  delivery_note: string;
+}
+
+export interface CustomerAlert {
+  id: number;
+  kind: string;
+  label: string;
+  symbol: string;
+  threshold: number | null;
+  session: string | null;
+  note: string;
+  enabled: boolean;
+  repeatable: boolean;
+  triggered_at: string | null;
+  trigger_count: number;
+  last_message: string;
+  acknowledged: boolean;
+  created_at: string | null;
+}
+
+export interface AlertFeed {
+  alerts: CustomerAlert[];
+  unacknowledged: number;
+}

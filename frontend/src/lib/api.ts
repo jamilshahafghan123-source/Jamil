@@ -17,6 +17,9 @@
   OrderLog,
   RecoveryStatus,
   BrokerDirectory,
+  AlertFeed,
+  AlertKinds,
+  CustomerAlert,
   OpportunityFeed,
   RiskSettings,
   SavedStrategy,
@@ -236,6 +239,32 @@ export const api = {
 
   /** Broker directory. Statuses only — no credentials, no ratings. */
   brokers: () => request<BrokerDirectory>("/api/demo/brokers"),
+
+  // ---- Alerts. In-app delivery only; no provider is connected. ---------
+
+  alertKinds: () => request<AlertKinds>("/api/alerts/kinds"),
+
+  alerts: () => request<AlertFeed>("/api/alerts"),
+
+  createAlert: (body: {
+    kind: string; symbol: string; threshold?: number | null;
+    session?: string | null; note?: string; repeatable?: boolean;
+  }) =>
+    request<CustomerAlert>("/api/alerts", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+
+  setAlertEnabled: (id: number, enabled: boolean) =>
+    request<CustomerAlert>(
+      `/api/alerts/${id}/enabled?enabled=${enabled ? "true" : "false"}`,
+      { method: "POST" },
+    ),
+
+  acknowledgeAlert: (id: number) =>
+    request<CustomerAlert>(`/api/alerts/${id}/acknowledge`, { method: "POST" }),
+
+  deleteAlert: (id: number) =>
+    request<{ deleted: number }>(`/api/alerts/${id}`, { method: "DELETE" }),
 
   /** Opportunity telemetry: everything detected, including declined. */
   opportunities: (days = 1) =>

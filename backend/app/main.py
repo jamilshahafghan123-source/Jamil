@@ -28,6 +28,7 @@ from .routers import (
     ws,
     strategies,
     opportunities,
+    alerts,
 )
 from .security import hash_password
 from .services import bot
@@ -119,6 +120,7 @@ app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(analysis.router)
 app.include_router(strategies.router)
+app.include_router(alerts.router)
 app.include_router(opportunities.router)
 app.include_router(opportunities.admin_router)
 app.include_router(risk.router)

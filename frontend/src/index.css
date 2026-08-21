@@ -3435,3 +3435,70 @@ th.right {
   color: var(--muted, #8b93a1);
 }
 .jg-opp-factor-value { font-variant-numeric: tabular-nums; color: inherit; }
+
+/* ------------------------------------------------------- alerts (§62)
+   No channel selector: email, SMS and push are not connected, and a
+   switch that did nothing would be worse than its absence. */
+.jg-alerts { padding: 4px 0; }
+.jg-alert-form {
+  border: 1px solid var(--line, #23262d);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  background: var(--bg-2, #0f1115);
+}
+.jg-alert-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}
+.jg-alert-form select,
+.jg-alert-form input[type="number"],
+.jg-alert-form input[type="text"],
+.jg-alert-form input:not([type]) {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #23262d);
+  background: var(--bg-1, #14161b);
+  color: inherit;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.jg-alert-repeat {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  font-size: 11px !important;
+}
+.jg-alert-repeat input { width: auto !important; margin: 0 !important; }
+.jg-alert-row {
+  border: 1px solid var(--line, #23262d);
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+/* An alert that has fired and not been dismissed keeps a gold edge. */
+.jg-alert-row.fired { box-shadow: inset 3px 0 0 var(--gold, #d9a441); }
+.jg-alert-main { display: flex; justify-content: space-between; gap: 8px; }
+.jg-alert-label { font-size: 12px; }
+.jg-alert-symbol { font-size: 10px; color: var(--muted, #8b93a1); }
+.jg-alert-note { font-size: 10px; color: var(--muted, #8b93a1); margin: 3px 0 0; }
+.jg-alert-fired { font-size: 11px; color: var(--gold, #d9a441); margin: 4px 0 0; }
+.jg-alert-actions {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px;
+}
+.jg-alert-flag {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a1);
+}

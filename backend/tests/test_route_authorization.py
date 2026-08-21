@@ -44,6 +44,9 @@ PLATFORM_ROUTES = [
     # same platform gate as everything else here.
     ("GET", "/api/strategies"),
     ("GET", "/api/strategies/vocabulary"),
+    ("GET", "/api/alerts"),
+    ("GET", "/api/alerts/kinds"),
+    ("GET", "/api/opportunities"),
 ]
 
 ADMIN_ROUTES = [

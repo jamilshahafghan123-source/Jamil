@@ -21,6 +21,7 @@ idempotent and states its effect on existing data.
 | `008_user_role_enum.sql` | native `userrole` enum type | Column type only; ADMIN/CUSTOMER values preserved |
 | `009_strategies.sql` | `strategies` table | No |
 | `010_opportunity_logs.sql` | `opportunity_logs` table | No |
+| `011_alerts.sql` | `alerts` table | No |
 
 `008` is the first file that changes an existing column's *type* rather
 than adding one. It converts `users.role` from the VARCHAR an older

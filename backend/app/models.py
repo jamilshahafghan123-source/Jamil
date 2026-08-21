@@ -740,3 +740,66 @@ class OpportunityLog(Base):
     outcome_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
     #: The full factor breakdown, so a score can always be interrogated.
     score_breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class AlertKind(str, enum.Enum):
+    """What an alert watches. A closed set, like every other vocabulary here.
+
+    Only conditions the platform can genuinely observe are listed. There
+    is no EMAIL or SMS delivery member anywhere in this model: section 62
+    forbids faking a provider that is not configured, and the honest way
+    to honour that is to have no representation of it.
+    """
+
+    PRICE_ABOVE = "PRICE_ABOVE"
+    PRICE_BELOW = "PRICE_BELOW"
+    PRICE_CROSSES = "PRICE_CROSSES"
+    SESSION_OPEN = "SESSION_OPEN"
+    SESSION_HIGH_BREAK = "SESSION_HIGH_BREAK"
+    SESSION_LOW_BREAK = "SESSION_LOW_BREAK"
+    AI_SIGNAL_CHANGE = "AI_SIGNAL_CHANGE"
+    CONFIDENCE_ABOVE = "CONFIDENCE_ABOVE"
+    RR_ABOVE = "RR_ABOVE"
+    OPPORTUNITY_SCORE_ABOVE = "OPPORTUNITY_SCORE_ABOVE"
+    POSITION_CLOSED = "POSITION_CLOSED"
+    STOP_LOSS_HIT = "STOP_LOSS_HIT"
+    TAKE_PROFIT_HIT = "TAKE_PROFIT_HIT"
+
+
+class Alert(Base):
+    """A customer's in-app alert (section 62).
+
+    Delivery is in-app only. `triggered_at` and `acknowledged` are what
+    the bell reads; nothing here sends mail, a push or a message, because
+    no provider is configured and pretending otherwise would be the kind
+    of false claim section 88 forbids.
+    """
+
+    __tablename__ = "alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=False
+    )
+    kind: Mapped[AlertKind] = mapped_column(Enum(AlertKind))
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    #: Threshold for the kinds that take one. Null where the kind is an event.
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Session name for session-scoped kinds.
+    session: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    note: Mapped[str] = mapped_column(String(200), default="")
+
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: A one-shot alert disables itself after firing, so a level crossed
+    #: once does not shout on every tick that follows.
+    repeatable: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    triggered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    trigger_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_message: Mapped[str] = mapped_column(Text, default="")
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=True)

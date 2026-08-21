@@ -19,6 +19,7 @@ import { LanguagePicker } from "../components/LanguagePicker";
 import { ObjectTree } from "../components/ObjectTree";
 import { StrategyBuilder } from "../components/StrategyBuilder";
 import { OpportunityLog } from "../components/OpportunityLog";
+import { AlertsPanel } from "../components/AlertsPanel";
 import { useLanguage } from "../i18n/useLanguage";
 import {
   AIOverlayLayer,
@@ -116,7 +117,7 @@ export function TradingWorkspace({
   const [showSessions, setShowSessions] = useState(false);
   const [showPrevLevels, setShowPrevLevels] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [sideTab, setSideTab] = useState<"ai" | "technicals" | "objects">("ai");
+  const [sideTab, setSideTab] = useState<"ai" | "technicals" | "objects" | "alerts">("ai");
   const [brokersOpen, setBrokersOpen] = useState(false);
   const [strategiesOpen, setStrategiesOpen] = useState(false);
 
@@ -824,7 +825,18 @@ export function TradingWorkspace({
             >
               Objects ({draw.drawings.length})
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sideTab === "alerts"}
+              className={sideTab === "alerts" ? "jg-chip active" : "jg-chip"}
+              onClick={() => setSideTab("alerts")}
+            >
+              Alerts
+            </button>
           </div>
+
+          {sideTab === "alerts" && <AlertsPanel symbol={symbol} />}
 
           {sideTab === "objects" && (
             <ObjectTree
