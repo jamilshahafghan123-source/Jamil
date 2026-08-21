@@ -4120,3 +4120,70 @@ th.right {
   vertical-align: super;
   opacity: 0.7;
 }
+
+/* ---- replay (§42) -----------------------------------------------------
+   LIVE versus REPLAY is deliberately loud: a customer who mistakes
+   recorded history for the live market could act on a price the market
+   left behind hours ago. */
+.jg-replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border: 1px solid rgba(217, 164, 65, 0.5);
+  border-radius: 7px;
+  background: rgba(217, 164, 65, 0.08);
+}
+.jg-replay-badge {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--gold, #d9a441);
+  font-weight: 700;
+}
+.jg-replay-btn {
+  min-width: 22px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+}
+.jg-replay-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.jg-replay-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.jg-replay-speed {
+  padding: 2px 3px;
+  border: 1px solid var(--line, #23262d);
+  border-radius: 4px;
+  background: var(--bg-2, #0f1115);
+  color: inherit;
+  font-size: 10px;
+}
+.jg-replay-count {
+  font-size: 9px;
+  color: var(--muted, #8b93a1);
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+  text-align: center;
+}
+.jg-live-badge {
+  position: absolute;
+  top: 8px;
+  inset-inline-end: 68px;
+  z-index: 6;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  background: rgba(63, 185, 80, 0.16);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+}
+.jg-live-badge.replay {
+  background: rgba(217, 164, 65, 0.18);
+  color: var(--gold, #d9a441);
+  border-color: rgba(217, 164, 65, 0.55);
+}

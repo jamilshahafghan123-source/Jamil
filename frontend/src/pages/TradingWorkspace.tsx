@@ -26,6 +26,7 @@ import { IndicatorPane } from "../components/IndicatorPane";
 import { BotPanel } from "../components/BotPanel";
 import { QuickTrade } from "../components/QuickTrade";
 import { DataWindow } from "../components/DataWindow";
+import { ReplayBar } from "../components/ReplayBar";
 import {
   NotConfigured, RailPanel, RightRail, type PanelId, type RailItem,
 } from "../components/RightRail";
@@ -207,6 +208,31 @@ export function TradingWorkspace({
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [hoverBar, setHoverBar] = useState<number | null>(null);
   const [visibleRange, setVisibleRange] = useState<string>("1D");
+
+  /**
+   * Replay reveals a prefix of the bars already loaded. It never
+   * generates a candle, and while it is on the chart is fed the slice
+   * rather than the live array — so what is on screen is exactly what
+   * the market did, up to that point.
+   */
+  const [replayOn, setReplayOn] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replaySpeed, setReplaySpeed] = useState(1);
+
+  const stepReplay = useCallback(() => {
+    setReplayIndex((current) => {
+      if (current >= bars.length - 1) {
+        // Stop at the end of recorded history rather than looping; a
+        // replay that silently restarted would look like new data.
+        setReplayPlaying(false);
+        return bars.length - 1;
+      }
+      return current + 1;
+    });
+  }, [bars.length]);
+
+  const visibleBars = replayOn ? bars.slice(0, replayIndex + 1) : bars;
   const workspace = useRef<HTMLDivElement>(null);
 
   /**
@@ -235,7 +261,10 @@ export function TradingWorkspace({
 
   // Indicator state and calculations. Memoised on `bars`, so a poll that
   // returns an unchanged array recomputes nothing.
-  const { configs, setConfigs, overlays, readouts, panes } = useIndicators(bars);
+  // Indicators recompute on the replayed slice, so a study never shows a
+  // value derived from candles the replay has not reached yet.
+  const { configs, setConfigs, overlays, readouts, panes } =
+    useIndicators(replayOn ? bars.slice(0, replayIndex + 1) : bars);
 
   // Customer drawings. Scoped to symbol AND timeframe, reloaded on either
   // change, and entirely separate from the AI overlays above.
@@ -736,6 +765,28 @@ export function TradingWorkspace({
         <button type="button" className="btn sm" onClick={() => setResetting(true)}>
           {t("workspace.resetDemo")}
         </button>
+        <ReplayBar
+          active={replayOn}
+          index={replayIndex}
+          total={bars.length}
+          playing={replayPlaying}
+          speed={replaySpeed}
+          onToggleActive={() => {
+            // Start part-way in, so there is chart to read immediately
+            // rather than a single candle on an empty pane.
+            setReplayIndex(Math.max(0, Math.floor(bars.length * 0.6)));
+            setReplayOn(true);
+            setReplayPlaying(false);
+          }}
+          onPlayPause={() => setReplayPlaying((v) => !v)}
+          onStep={stepReplay}
+          onJump={(delta) =>
+            setReplayIndex((current) =>
+              Math.max(0, Math.min(bars.length - 1, current + delta)))}
+          onSpeed={setReplaySpeed}
+          onReset={() => { setReplayIndex(0); setReplayPlaying(false); }}
+          onExit={() => { setReplayOn(false); setReplayPlaying(false); }}
+        />
         <button
           type="button"
           className={bottomOpen ? "btn sm active" : "btn sm"}
@@ -896,6 +947,9 @@ export function TradingWorkspace({
               }}
               onMouseLeave={() => setHoverBar(null)}
             >
+              <span className={replayOn ? "jg-live-badge replay" : "jg-live-badge"}>
+                {replayOn ? "REPLAY" : "LIVE"}
+              </span>
               {quickTrade && (
                 <QuickTrade
                   instrument={instrument}
@@ -910,13 +964,18 @@ export function TradingWorkspace({
                   onStopLoss={setStopLoss}
                   onTakeProfit={setTakeProfit}
                   onPlace={() => setConfirming(true)}
-                  disabled={!canOpen || pendingOrder}
-                  disabledReason={account?.blocked_reason ?? null}
+                  /* Replay shows a past price. Placing an order against
+                     it would open at a rate the market left behind hours
+                     ago, so trading is closed while replay is on. */
+                  disabled={!canOpen || pendingOrder || replayOn}
+                  disabledReason={replayOn
+                    ? "Replay is showing past candles — trading is paused."
+                    : account?.blocked_reason ?? null}
                   onHide={() => setQuickTrade(false)}
                 />
               )}
               <TradingChart
-                bars={bars}
+                bars={visibleBars}
               markers={markers}
               priceLines={chartLines}
                 overlays={overlays}
