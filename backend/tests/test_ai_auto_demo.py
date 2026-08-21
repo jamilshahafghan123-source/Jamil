@@ -21,6 +21,7 @@ from app.db import Base
 from app.models import (
     DemoAccount,
     DemoPosition,
+    DemoTrade,
     ExecutionVenue,
     RiskSettings,
     Signal,
@@ -421,3 +422,136 @@ async def test_fifty_percent_does_not_mean_force_a_trade(env):
     joined = " ".join(result.reasons).lower()
     assert "risk/reward" in joined or "rr" in joined, result.reasons
     assert "confidence" not in joined, result.reasons
+
+
+# ------------------------------------------- profit protection (§44)
+
+
+class _StubTick:
+    """One price, no socket. The bot's only market call on this path."""
+
+    def __init__(self, bid: float, ask: float) -> None:
+        self._quote = {"bid": bid, "ask": ask}
+
+    async def tick(self, *_a, **_k):
+        return self._quote
+
+
+async def _open_demo_position(env, side: str, entry_bid: float,
+                              entry_ask: float) -> int:
+    """Open one AI_AUTO position through the real execution path."""
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        settings_row.min_confidence = 50
+        signal = _signal(
+            env["user"].id,
+            action=SignalAction.BUY if side == "BUY" else SignalAction.SELL,
+            entry=entry_ask,
+            stop_loss=entry_ask - 10 if side == "BUY" else entry_ask + 10,
+            take_profit=entry_ask + 30 if side == "BUY" else entry_ask - 30,
+        )
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user"].id, signal=signal,
+            settings_row=settings_row,
+            quote=Quote(bid=entry_bid, ask=entry_ask),
+        )
+        await db.commit()
+    assert result.executed is True, result.reasons
+    async with env["Session"]() as db:
+        return (await db.execute(select(DemoPosition))).scalar_one().id
+
+
+def _analysis(momentum: str, trend: str) -> dict:
+    return {"market": {"momentum": momentum},
+            "timeframes": [{"timeframe": "M15", "role": "SETUP",
+                            "trend": trend}]}
+
+
+@pytest.mark.asyncio
+async def test_the_bot_manages_its_own_demo_positions(env, monkeypatch):
+    """The defect: demo positions were opened and then never managed.
+
+    Both managers read mt5.positions(), so an account on the internal
+    demo venue had the bot open trades it could not see afterwards.
+    """
+    position_id = await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    monkeypatch.setattr(bot, "mt5", _StubTick(3020.0, 3020.2))
+    bot._profit_state.streaks.clear()
+
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        signal = _signal(env["user"].id, action=SignalAction.SELL,
+                         confidence=95)
+        signal.analysis = _analysis("FALLING", "DOWN")
+
+        # Cycle one: weakening, but nothing closes on a single reading.
+        closed = await bot._manage_profitable_positions(
+            db, env["user"], signal, settings_row)
+        assert closed is False
+
+    async with env["Session"]() as db:
+        assert (await db.execute(select(DemoPosition))).scalars().all() != [], \
+            "one weak cycle must not close a profitable position"
+
+    async with env["Session"]() as db:
+        settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+        signal = _signal(env["user"].id, action=SignalAction.SELL,
+                         confidence=95)
+        signal.analysis = _analysis("FALLING", "DOWN")
+
+        # Cycle two: confirmed, so the profit is protected.
+        closed = await bot._manage_profitable_positions(
+            db, env["user"], signal, settings_row)
+        assert closed is True
+
+    async with env["Session"]() as db:
+        assert (await db.execute(select(DemoPosition))).scalars().all() == []
+        trade = (await db.execute(select(DemoTrade))).scalar_one()
+        assert trade.realized_pnl > 0, "it protected a PROFIT"
+        assert trade.close_reason == "PROFIT_EXIT_CONFIRMED_REVERSAL"
+    assert position_id  # the position that was managed
+
+
+@pytest.mark.asyncio
+async def test_a_supported_demo_position_is_left_alone(env, monkeypatch):
+    """Still-supported profit is held, however many cycles run."""
+    await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    monkeypatch.setattr(bot, "mt5", _StubTick(3020.0, 3020.2))
+    bot._profit_state.streaks.clear()
+
+    for _ in range(5):
+        async with env["Session"]() as db:
+            settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+            signal = _signal(env["user"].id, action=SignalAction.BUY,
+                             confidence=88)
+            signal.analysis = _analysis("RISING", "UP")
+            assert await bot._manage_profitable_positions(
+                db, env["user"], signal, settings_row) is False
+
+    async with env["Session"]() as db:
+        assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_losing_demo_position_is_never_closed_by_this_path(
+    env, monkeypatch
+):
+    """The stop loss owns losing trades. This path must not touch them."""
+    await _open_demo_position(env, "BUY", 3000.0, 3000.2)
+    # Price well below the entry: the position is losing.
+    monkeypatch.setattr(bot, "mt5", _StubTick(2995.0, 2995.2))
+    bot._profit_state.streaks.clear()
+
+    for _ in range(4):
+        async with env["Session"]() as db:
+            settings_row = (await db.execute(select(RiskSettings))).scalar_one()
+            signal = _signal(env["user"].id, action=SignalAction.SELL,
+                             confidence=99)
+            signal.analysis = _analysis("FALLING", "DOWN")
+            assert await bot._manage_profitable_positions(
+                db, env["user"], signal, settings_row) is False
+
+    async with env["Session"]() as db:
+        assert len((await db.execute(select(DemoPosition))).scalars().all()) == 1

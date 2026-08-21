@@ -23,6 +23,7 @@ from .. import audit
 from ..config import settings
 from ..db import SessionLocal
 from ..models import (
+    DemoPosition,
     ExecutionVenue,
     RiskSettings,
     Signal,
@@ -33,9 +34,11 @@ from ..models import (
 from . import (
     demo_execution,
     executor,
+    instruments,
     maintenance,
     opportunity,
     opportunity_inputs,
+    profit_guard,
     risk_engine,
     safe_mode,
     telemetry,
@@ -142,20 +145,167 @@ async def run_analysis(
     return signal, analysis
 
 
+#: Weakening streaks per position, across cycles. Module level for the
+#: same reason `_idle_logged` is: the bot loop is a long-lived singleton.
+_profit_state = profit_guard.GuardState()
+
+
+def _guard_key(user_id: int, venue: str, ticket: object) -> str:
+    return f"{user_id}:{venue}:{ticket}"
+
+
 async def _manage_profitable_positions(
     db: AsyncSession,
     user: User,
     signal: Signal | None,
     settings_row: RiskSettings,
 ) -> bool:
-    """Close profitable positions when the AI no longer supports holding them.
+    """Protect open profits when a reversal is CONFIRMED (section 44).
 
-    Returns True if at least one position was closed.  When that happens the
-    caller skips new entries for the remainder of the current bot cycle.
+    Returns True if at least one position was closed. When that happens
+    the caller skips new entries for the remainder of the cycle.
+
+    Routed by venue, exactly like the entry path. This used to read
+    `mt5.positions()` unconditionally, which meant an account trading the
+    internal demo venue had its positions opened by the bot and then
+    never managed by it — the profit manager was looking at a broker that
+    held none of them.
+
+    The decision itself lives in `profit_guard` so it can be tested
+    without a broker or a database. It requires two independent cycles
+    AND corroborating evidence before closing anything.
     """
     if settings_row.trading_mode not in (TradingMode.DEMO, TradingMode.REAL):
         return False
 
+    ai_action = signal.action.value if signal is not None else "NO_TRADE"
+    ai_confidence = int(signal.confidence or 0) if signal is not None else 0
+    analysis = (signal.analysis or {}) if signal is not None else {}
+
+    if settings_row.execution_venue is ExecutionVenue.JGOLD_DEMO:
+        return await _manage_demo_profits(
+            db, user, ai_action, ai_confidence, analysis
+        )
+    return await _manage_broker_profits(
+        db, user, ai_action, ai_confidence, analysis
+    )
+
+
+def _log_guard(venue: str, ticket: object, side: str, profit: float,
+               decision) -> None:
+    """One line per position per cycle, naming the stage and the reason.
+
+    The customer has to be able to see WHY the bot held or exited, which
+    means the reason has to be recorded even when nothing happened.
+    """
+    log.info(
+        "profit guard %s venue=%s ticket=%s side=%s profit=%.2f cycles=%s: %s",
+        decision.action.value, venue, ticket, side, profit,
+        decision.weakening_cycles, decision.reason,
+    )
+
+
+async def _manage_demo_profits(
+    db: AsyncSession,
+    user: User,
+    ai_action: str,
+    ai_confidence: int,
+    analysis: dict,
+) -> bool:
+    """The internal demo venue. Closes through the demo engine only."""
+    account = await demo_execution.account_for(db, user.id)
+    positions = list(
+        (
+            await db.execute(
+                select(DemoPosition).where(DemoPosition.account_id == account.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not positions:
+        return False
+
+    try:
+        tick = await mt5.tick()
+        quote = demo_execution.demo_engine.Quote(
+            bid=float(tick.get("bid") or 0.0), ask=float(tick.get("ask") or 0.0)
+        )
+    except Exception:  # noqa: BLE001 - no price means no decision
+        log.warning("profit guard: no price for user %s", user.id)
+        return False
+    if quote.bid <= 0 or quote.ask <= 0:
+        return False
+
+    closed_any = False
+    for position in positions:
+        try:
+            instrument = instruments.get(position.symbol)
+            profit = demo_execution.demo_engine.position_pnl(
+                position, quote, instrument
+            )
+        except Exception:  # noqa: BLE001 - an unpriceable position is skipped
+            continue
+
+        key = _guard_key(user.id, "JGOLD_DEMO", position.id)
+        decision = profit_guard.assess(
+            side=position.side.value,
+            profit=profit,
+            ai_action=ai_action,
+            ai_confidence=ai_confidence,
+            analysis=analysis,
+            weakening_cycles=_profit_state.streaks.get(key, 0),
+        )
+        _log_guard("JGOLD_DEMO", position.id, position.side.value, profit,
+                   decision)
+
+        if decision.action is profit_guard.ProfitAction.HOLD:
+            _profit_state.clear(key)
+            continue
+
+        _profit_state.record_weakening(key)
+        if not decision.should_close:
+            continue
+
+        trade = demo_execution.demo_engine.close_position(
+            account, position, quote,
+            reason=profit_guard.ProfitAction.EXIT.value,
+        )
+        db.add(trade)
+        await db.delete(position)
+        await db.commit()
+        _profit_state.clear(key)
+        closed_any = True
+
+        await audit.record(
+            db,
+            audit.POSITION_CLOSED,
+            {
+                "venue": "JGOLD_DEMO",
+                "position_id": position.id,
+                "stage": decision.action.value,
+                "reason": decision.reason,
+                "weakening_cycles": decision.weakening_cycles,
+                "realized_pnl": trade.realized_pnl,
+            },
+            user.id,
+        )
+        log.warning(
+            "PROFIT PROTECTED venue=JGOLD_DEMO position=%s realised=%.2f: %s",
+            position.id, trade.realized_pnl, decision.reason,
+        )
+
+    return closed_any
+
+
+async def _manage_broker_profits(
+    db: AsyncSession,
+    user: User,
+    ai_action: str,
+    ai_confidence: int,
+    analysis: dict,
+) -> bool:
+    """The broker venue. Unchanged in how it closes; only when."""
     try:
         positions = await mt5.positions(settings.SYMBOL)
     except BridgeError as e:
@@ -165,70 +315,52 @@ async def _manage_profitable_positions(
     if not positions:
         return False
 
-    ai_action = signal.action.value if signal is not None else "NO_TRADE"
-    ai_confidence = int(signal.confidence or 0) if signal is not None else 0
     closed_any = False
-
     for position in positions:
         profit = float(position.get("profit") or 0.0)
-
-        # Never use this profit-taking rule to close a losing trade.
-        if profit <= 0:
-            continue
-
         side = str(position.get("type") or "").upper()
         ticket = int(position["ticket"])
 
-        # Continue holding when the current AI analysis still strongly
-        # supports the direction of the existing trade.
-        still_strong = (
-            ai_action == side
-            and ai_confidence >= 65
+        key = _guard_key(user.id, "MT5", ticket)
+        decision = profit_guard.assess(
+            side=side,
+            profit=profit,
+            ai_action=ai_action,
+            ai_confidence=ai_confidence,
+            analysis=analysis,
+            weakening_cycles=_profit_state.streaks.get(key, 0),
         )
+        _log_guard("MT5", ticket, side, profit, decision)
 
-        if still_strong:
-            log.info(
-                "profit manager HOLD ticket=%s side=%s profit=%.2f ai=%s confidence=%s",
-                ticket,
-                side,
-                profit,
-                ai_action,
-                ai_confidence,
-            )
+        if decision.action is profit_guard.ProfitAction.HOLD:
+            _profit_state.clear(key)
             continue
 
-        reason = (
-            f"auto_profit_exit: profitable position no longer strongly "
-            f"supported; side={side}, ai={ai_action}, "
-            f"confidence={ai_confidence}, profit={profit:.2f}"
-        )
+        _profit_state.record_weakening(key)
+        if not decision.should_close:
+            continue
 
         result = await executor.close_position(
             db,
             user_id=user.id,
             ticket=ticket,
-            reason=reason,
+            reason=f"{decision.action.value}: {decision.reason}",
         )
 
         if result.get("success"):
             closed_any = True
+            _profit_state.clear(key)
             log.warning(
-                "AUTO PROFIT CLOSE ticket=%s side=%s profit=%.2f ai=%s confidence=%s",
-                ticket,
-                side,
-                profit,
-                ai_action,
-                ai_confidence,
+                "PROFIT PROTECTED venue=MT5 ticket=%s side=%s profit=%.2f: %s",
+                ticket, side, profit, decision.reason,
             )
         else:
             log.warning(
-                "auto profit close failed ticket=%s result=%s",
-                ticket,
-                result,
+                "profit protection close failed ticket=%s result=%s",
+                ticket, result,
             )
 
     return closed_any
-
 
 
 async def _manage_strong_reversal(
