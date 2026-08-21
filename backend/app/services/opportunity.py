@@ -101,6 +101,17 @@ ABSOLUTE_FLOOR = Requirement(
 #: Per-class requirements. A scalp is allowed a lower RR than a swing
 #: because it is a different product — but it must be MORE confident and
 #: accept LESS spread, because its margin for error is smaller.
+#:
+#: GRADE IS NOT A UNIVERSAL GOOD. An ordinary setup that scores 55 is
+#: ACCEPTABLE, and if it also clears confidence, risk/reward, spread,
+#: sizing, exposure and the daily loss limit then there is no honest
+#: reason left to refuse it — "your score was 55 and I wanted 62" is not
+#: a risk control, it is a preference. POOR is where the platform stops.
+#:
+#: A_PLUS keeps GOOD because A_PLUS is a claim about quality: a setup only
+#: becomes one by already scoring EXCELLENT with 2.0R or better, so the
+#: requirement records the standard rather than raising a bar for
+#: ordinary trades.
 BASE_REQUIREMENTS: dict[SetupClass, Requirement] = {
     SetupClass.A_PLUS: Requirement(
         min_confidence=72, min_rr=2.0, max_spread_points=45.0,
@@ -108,11 +119,11 @@ BASE_REQUIREMENTS: dict[SetupClass, Requirement] = {
     ),
     SetupClass.STANDARD: Requirement(
         min_confidence=68, min_rr=1.5, max_spread_points=40.0,
-        min_grade=Grade.GOOD,
+        min_grade=Grade.ACCEPTABLE,
     ),
     SetupClass.SCALP: Requirement(
         min_confidence=70, min_rr=1.1, max_spread_points=25.0,
-        min_grade=Grade.GOOD,
+        min_grade=Grade.ACCEPTABLE,
     ),
 }
 
@@ -175,7 +186,13 @@ def requirements_for(
         min_rr=round(max(rr, ABSOLUTE_FLOOR.min_rr), 2),
         max_spread_points=min(base.max_spread_points,
                               ABSOLUTE_FLOOR.max_spread_points),
-        min_grade=base.min_grade,
+        # Clamped like the others, so no future class can be given a
+        # requirement below the platform's own declared minimum.
+        min_grade=(
+            base.min_grade
+            if _grade_rank(base.min_grade) >= _grade_rank(ABSOLUTE_FLOOR.min_grade)
+            else ABSOLUTE_FLOOR.min_grade
+        ),
     )
 
 

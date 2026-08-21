@@ -245,30 +245,24 @@ def evaluate(
     # which is different from having a bad one — see `meets_grade`.
     if opportunity_grade is not None:
         d.opportunity_grade = opportunity_grade
-        # GATED AT THE ABSOLUTE FLOOR, NOT THE CLASS REQUIREMENT.
+        # The class decides, with the platform's floor underneath it.
         #
-        # The class asks for GOOD. That is the right standard for the
-        # opportunity log's own verdict, and it is what `qualified`
-        # reports there. It is NOT yet safe as an execution gate, because
-        # the score it is compared against cannot be calibrated without
-        # live market data — three of the thirteen factors were being
-        # mis-read until this batch, and on synthetic data a clean trend
-        # scores POOR for reasons that say more about the data than the
-        # setup. Refusing everything is as wrong as refusing nothing, and
-        # section 47 forbids solving one by causing the other.
+        # For an ordinary setup that means ACCEPTABLE: a score of 55 that
+        # also clears confidence, risk/reward, spread, sizing, exposure
+        # and the daily loss limit has nothing honest left against it, and
+        # refusing it for wanting 62 would be a preference wearing a risk
+        # control's clothes. POOR is where the platform stops.
         #
-        # The floor is the platform's own declared minimum quality, so it
-        # refuses genuinely POOR setups without inventing a threshold
-        # nobody has measured. Raising this to the class requirement is a
-        # one-line change once live scores have been observed.
-        required = opportunity.ABSOLUTE_FLOOR.min_grade
+        # A_PLUS still asks for GOOD, because a setup only becomes A_PLUS
+        # by already scoring EXCELLENT — the requirement records that
+        # standard rather than raising the bar for normal trades.
+        required = requirement.min_grade
         d.required_grade = required.value
         clears = opportunity.meets_grade(opportunity_grade, required)
         if clears is False:
             return d.block(
                 f"opportunity grade {opportunity_grade} below "
-                f"{required.value}, the minimum quality this platform "
-                f"will trade"
+                f"{required.value} required for a {d.setup_class} setup"
             )
 
     # Spread is gated by whichever limit is TIGHTER — the account's or the

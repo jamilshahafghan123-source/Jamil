@@ -120,6 +120,39 @@ async def _attempt(env, direction: str, *, confidence: int = 50,
         return result
 
 
+async def _graded_attempt(env, direction: str, *, grade: str,
+                          confidence: int = 50, geometry: dict | None = None,
+                          **settings_over):
+    """One signal carrying an opportunity grade, through the real path."""
+    geometry = geometry or GEOMETRY[direction]
+    async with env["Session"]() as db:
+        row = (await db.execute(select(RiskSettings))).scalar_one()
+        # Restored below. A helper that leaves a setting changed makes the
+        # NEXT case fail for the previous case's reason, which is a very
+        # slow way to learn that the tests are not independent.
+        previous = {k: getattr(row, k) for k in settings_over}
+        for key, value in settings_over.items():
+            setattr(row, key, value)
+        signal = Signal(
+            user_id=env["user_id"], symbol="XAUUSD",
+            action=SignalAction[direction], confidence=confidence,
+            reason="grade rule", **geometry,
+            risk_reward=round(
+                abs(geometry["take_profit"] - geometry["entry"])
+                / abs(geometry["entry"] - geometry["stop_loss"]), 2),
+        )
+        db.add(signal)
+        await db.flush()
+        result = await demo_execution.execute_signal(
+            db, user_id=env["user_id"], signal=signal, settings_row=row,
+            quote=QUOTE, opportunity_grade=grade,
+        )
+        for key, value in previous.items():
+            setattr(row, key, value)
+        await db.commit()
+        return result
+
+
 async def _positions(env) -> list[DemoPosition]:
     async with env["Session"]() as db:
         return list((await db.execute(select(DemoPosition))).scalars().all())
@@ -476,21 +509,50 @@ def test_the_ask_route_never_calls_an_execution_function():
         assert forbidden not in called, forbidden
 
 
-def test_the_grade_gate_sits_at_the_declared_floor():
-    """A gate nobody can calibrate must not be set by guesswork.
+def test_grade_is_not_a_universal_good():
+    """An ordinary setup needs ACCEPTABLE, not GOOD.
 
-    The class asks for GOOD and the opportunity log still reports against
-    that. Execution gates at the platform's own declared minimum, so it
-    refuses genuinely poor setups without inventing a threshold that
-    could silently take the bot to zero trades a day.
+    A score of 55 that also clears confidence, risk/reward, spread,
+    sizing, exposure and the daily loss limit has nothing honest left
+    against it. Refusing it for wanting 62 is a preference, not a risk
+    control. POOR is where the platform stops.
     """
-    from app.services.opportunity import ABSOLUTE_FLOOR, Grade, SetupClass
-    from app.services.opportunity import requirements_for
+    from app.services.opportunity import (
+        ABSOLUTE_FLOOR, Grade, Regime, SetupClass, requirements_for,
+    )
 
     assert ABSOLUTE_FLOOR.min_grade is Grade.ACCEPTABLE
+    assert requirements_for(SetupClass.STANDARD).min_grade is Grade.ACCEPTABLE
+    assert requirements_for(SetupClass.SCALP).min_grade is Grade.ACCEPTABLE
+
+    # A_PLUS keeps the stricter standard. It is only ever assigned to a
+    # setup that already scored EXCELLENT, so this records the claim
+    # rather than raising the bar for ordinary trades.
+    assert requirements_for(SetupClass.A_PLUS).min_grade is Grade.GOOD
+
+    # And no regime or account setting can drop any class below the floor.
     for setup_class in SetupClass:
-        assert requirements_for(setup_class).min_grade is Grade.GOOD, \
-            "the class standard is unchanged; only the GATE is at the floor"
+        for regime in list(Regime) + [None]:
+            requirement = requirements_for(
+                setup_class, regime, account_min_confidence=50,
+                account_min_rr=1.5)
+            assert requirement.min_grade in (Grade.ACCEPTABLE, Grade.GOOD)
+
+
+def test_a_plus_is_only_ever_reached_from_an_excellent_score():
+    """So its stricter grade requirement can never block a normal trade."""
+    from app.services.opportunity import (
+        Grade, OpportunityScore, SetupClass, classify_setup,
+    )
+
+    for grade in (Grade.POOR, Grade.ACCEPTABLE, Grade.GOOD):
+        assert classify_setup(
+            OpportunityScore(total=60, grade=grade), expected_rr=3.0
+        ) is not SetupClass.A_PLUS
+
+    assert classify_setup(
+        OpportunityScore(total=80, grade=Grade.EXCELLENT), expected_rr=2.0
+    ) is SetupClass.A_PLUS
 
 
 def test_mirrored_bull_and_bear_data_score_identically():
@@ -539,3 +601,133 @@ def test_a_missing_rsi_is_still_treated_as_neutral():
     _, comp = _confidence({"timeframes": [tf]}, "SELL", tf, 2.0)
     # No rsi14 key at all: neutral, so no exhaustion penalty.
     assert comp["momentum"] == 15
+
+
+# ================================================= the grade rule, in full
+#
+#   POOR        -> blocked
+#   ACCEPTABLE  -> eligible when every other gate passes
+#   GOOD        -> eligible, and a stronger opportunity
+#
+# Each case is run for BUY and SELL, because a rule that holds one way
+# and not the other is the failure this file exists to catch.
+
+
+@pytest.mark.parametrize("direction", BOTH)
+@pytest.mark.asyncio
+async def test_case_1_poor_is_blocked(env, direction):
+    result = await _graded_attempt(env, direction, grade="POOR")
+    assert result.executed is False
+    assert any("grade" in r.lower() for r in result.reasons), result.reasons
+    assert await _positions(env) == []
+
+
+@pytest.mark.parametrize("direction", BOTH)
+@pytest.mark.asyncio
+async def test_case_2_acceptable_with_every_other_gate_passing_trades(
+    env, direction
+):
+    """The change you asked for: 55 is not a reason to refuse a good trade."""
+    result = await _graded_attempt(env, direction, grade="ACCEPTABLE")
+    assert result.executed is True, result.reasons
+    positions = await _positions(env)
+    assert len(positions) == 1
+    assert positions[0].side is DemoPositionSide[direction]
+
+
+@pytest.mark.parametrize("direction", BOTH)
+@pytest.mark.asyncio
+async def test_case_3_good_trades(env, direction):
+    result = await _graded_attempt(env, direction, grade="GOOD")
+    assert result.executed is True, result.reasons
+    assert len(await _positions(env)) == 1
+
+
+@pytest.mark.parametrize("direction", BOTH)
+@pytest.mark.parametrize("grade", ["ACCEPTABLE", "GOOD", "EXCELLENT"])
+@pytest.mark.asyncio
+async def test_case_4_forty_nine_percent_is_blocked_whatever_the_grade(
+    env, direction, grade
+):
+    """Confidence is its own gate. A good score cannot buy an entry."""
+    result = await _graded_attempt(env, direction, grade=grade, confidence=49)
+    assert result.executed is False
+    assert any("confidence" in r.lower() for r in result.reasons), result.reasons
+    assert await _positions(env) == []
+
+
+@pytest.mark.parametrize("direction", BOTH)
+@pytest.mark.parametrize("grade", ["ACCEPTABLE", "GOOD", "EXCELLENT"])
+@pytest.mark.asyncio
+async def test_case_5_bad_risk_reward_is_blocked_whatever_the_grade(
+    env, direction, grade
+):
+    result = await _graded_attempt(env, direction, grade=grade,
+                                   geometry=THIN_RR[direction])
+    assert result.executed is False
+    assert any("risk/reward" in r.lower() for r in result.reasons), result.reasons
+    assert await _positions(env) == []
+
+
+@pytest.mark.asyncio
+async def test_case_6_buy_and_sell_behave_identically(env):
+    """Same grade, same geometry, mirrored — same answer both ways."""
+    for grade, expected in (("POOR", False), ("ACCEPTABLE", True),
+                            ("GOOD", True)):
+        outcomes = {}
+        for direction in BOTH:
+            async with env["Session"]() as db:
+                for position in (
+                    await db.execute(select(DemoPosition))
+                ).scalars().all():
+                    await db.delete(position)
+                await db.commit()
+            outcomes[direction] = (
+                await _graded_attempt(env, direction, grade=grade)
+            ).executed
+        assert outcomes["BUY"] == outcomes["SELL"] == expected, (grade, outcomes)
+
+
+@pytest.mark.parametrize("direction", BOTH)
+@pytest.mark.asyncio
+async def test_case_7_every_other_gate_still_refuses_an_acceptable_setup(
+    env, direction
+):
+    """ACCEPTABLE buys nothing but the grade check itself.
+
+    Each of these is a different gate refusing the same otherwise-valid
+    ACCEPTABLE setup, which is what "eligible when all other gates pass"
+    has to mean.
+    """
+    # Spread.
+    wide = await _graded_attempt(env, direction, grade="ACCEPTABLE",
+                                 max_spread_points=1)
+    assert wide.executed is False
+    assert any("spread" in r.lower() for r in wide.reasons), wide.reasons
+
+    # Emergency stop.
+    stopped = await _graded_attempt(env, direction, grade="ACCEPTABLE",
+                                    emergency_stop=True)
+    assert stopped.executed is False
+    assert any("emergency" in r.lower() for r in stopped.reasons)
+
+    # Sizing: no room to risk anything.
+    tiny = await _graded_attempt(env, direction, grade="ACCEPTABLE",
+                                 max_lot_size=0.0)
+    assert tiny.executed is False
+
+    # SL/TP sanity: the opposite direction's geometry.
+    inverted = GEOMETRY["SELL" if direction == "BUY" else "BUY"]
+    flipped = await _graded_attempt(env, direction, grade="ACCEPTABLE",
+                                    geometry=inverted)
+    assert flipped.executed is False
+    assert any("requires" in r for r in flipped.reasons), flipped.reasons
+
+    assert await _positions(env) == []
+
+    # Exposure: fill the account, then try again.
+    assert (await _graded_attempt(env, "BUY", grade="ACCEPTABLE")).executed
+    assert (await _graded_attempt(env, "SELL", grade="ACCEPTABLE")).executed
+    capped = await _graded_attempt(env, direction, grade="ACCEPTABLE")
+    assert capped.executed is False
+    assert any("open positions" in r.lower() for r in capped.reasons)
