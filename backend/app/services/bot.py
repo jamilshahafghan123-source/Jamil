@@ -30,7 +30,16 @@ from ..models import (
     TradingMode,
     User,
 )
-from . import demo_execution, executor, maintenance, risk_engine, safe_mode
+from . import (
+    demo_execution,
+    executor,
+    maintenance,
+    opportunity,
+    opportunity_inputs,
+    risk_engine,
+    safe_mode,
+    telemetry,
+)
 from .analyst import analyze
 from .indicators import TIMEFRAMES, build_snapshot
 from .mt5_client import BridgeError, mt5
@@ -457,7 +466,65 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
     if signal is None or signal.action == SignalAction.NO_TRADE:
         return
 
+    # ---- TELEMETRY (section 49) --------------------------------------
+    #
+    # Recorded as soon as the engine has an opinion and BEFORE the risk
+    # manager rules, so a setup the risk manager later refuses is still on
+    # the record. Without this, a quiet day is unexplainable: "no trades"
+    # could equally mean nothing was found, everything was refused, or
+    # execution kept failing, and those call for different responses.
+    #
+    # Every call below swallows its own storage errors. A reporting outage
+    # must never become a refused trade.
+    opportunity_id: int | None = None
+    graded: dict | None = None
+    try:
+        now = datetime.now(timezone.utc)
+        analysis = signal.analysis or {}
+        trigger, distance_atr = opportunity_inputs.entry_inputs(analysis)
+        graded = opportunity.evaluate(
+            direction=signal.action.value,
+            confidence=signal.confidence,
+            expected_rr=float(signal.risk_reward or 0.0),
+            factors=opportunity_inputs.factors_from_analysis(
+                analysis,
+                direction=signal.action.value,
+                moment=now,
+                spread_points=(analysis.get("market") or {}).get("spread_points"),
+                max_spread_points=row.max_spread_points,
+            ),
+            timeframe_biases=opportunity_inputs.timeframe_biases(analysis),
+            entry_trigger=trigger,
+            distance_to_invalidation_atr=distance_atr,
+            account_min_confidence=row.min_confidence,
+            account_min_rr=row.min_rr,
+        )
+        opportunity_id = await telemetry.record_opportunity(
+            db,
+            user_id=user.id,
+            symbol=signal.symbol,
+            direction=signal.action.value,
+            confidence=signal.confidence,
+            expected_rr=float(signal.risk_reward or 0.0),
+            setup_class=graded["setup_class"],
+            grade=graded["score"]["grade"],
+            score=graded["score"]["total"],
+            required_confidence=graded["requirements"]["min_confidence"],
+            required_rr=graded["requirements"]["min_rr"],
+            ai_decision=graded["decision"],
+            session=opportunity_inputs.session_label(now),
+            rejection_reason="; ".join(graded["reasons"]) or None,
+            score_breakdown=graded["score"],
+        )
+    except Exception:  # noqa: BLE001 - telemetry never blocks trading
+        log.warning("opportunity telemetry failed for user %s", user.id,
+                    exc_info=True)
+
     if not may_open:
+        await telemetry.record_execution(
+            db, opportunity_id, result="REJECTED",
+            reason="the bot is not opening positions right now",
+        )
         return
 
     # VENUE ROUTING. Approval and destination are separate questions: the
@@ -483,6 +550,20 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
             quote=quote,
         )
         await db.commit()
+        # The risk ruling and what execution did are recorded separately:
+        # "risk approved it and execution failed" and "risk refused it"
+        # are different days and must not collapse into one status.
+        await telemetry.record_risk_decision(
+            db, opportunity_id,
+            approved=demo_result.executed,
+            reason="; ".join(demo_result.reasons) or None,
+        )
+        await telemetry.record_execution(
+            db, opportunity_id,
+            result="FILLED" if demo_result.executed else "REJECTED",
+            reason=None if demo_result.executed
+            else "; ".join(demo_result.reasons) or None,
+        )
         log.info(
             "AI Auto demo user=%s executed=%s reasons=%s",
             user.id,
@@ -497,6 +578,16 @@ async def _cycle_for_user(db: AsyncSession, user: User) -> None:
         signal=signal,
         settings_row=row,
         initiated_by="bot",
+    )
+    await telemetry.record_risk_decision(
+        db, opportunity_id,
+        approved=result.executed,
+        reason="; ".join(result.reasons) or None,
+    )
+    await telemetry.record_execution(
+        db, opportunity_id,
+        result="FILLED" if result.executed else "REJECTED",
+        reason=None if result.executed else "; ".join(result.reasons) or None,
     )
     log.info(
         "bot cycle user=%s executed=%s reasons=%s",

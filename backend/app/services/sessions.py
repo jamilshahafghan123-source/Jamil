@@ -81,7 +81,15 @@ def get(name: SessionName | str) -> SessionSpec:
 
 
 def active_at(moment: datetime) -> list[SessionSpec]:
-    """Which sessions are open at `moment`. Several overlap by design."""
+    """Which sessions are open at `moment`. Several overlap by design.
+
+    A centre is only open on its OWN weekdays. The four windows tile the
+    whole 24 hours, so without this rule there is no instant in the week
+    when nothing is open — and New York would be reported trading on a
+    Saturday afternoon. Reading the weekday in the centre's own timezone
+    is what makes the week close after New York's Friday and reopen with
+    Sydney's Monday morning, which in UTC is Sunday evening.
+    """
     if moment.tzinfo is None:
         raise ValueError("moment must be timezone-aware")
     moment = moment.astimezone(timezone.utc)
@@ -91,6 +99,8 @@ def active_at(moment: datetime) -> list[SessionSpec]:
         # Check yesterday too: a session that crossed local midnight is
         # still open in the early hours of the following local day.
         for day in (local_day - timedelta(days=1), local_day):
+            if day.weekday() >= 5:  # Saturday or Sunday where it trades
+                continue
             start, end = spec.window(day)
             if start <= moment < end:
                 out.append(spec)

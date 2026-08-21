@@ -76,6 +76,36 @@ def test_london_and_new_york_overlap_in_the_afternoon():
     assert {SessionName.LONDON, SessionName.NEW_YORK} <= names
 
 
+def test_the_market_week_closes_after_new_york_on_friday():
+    """Friday 21:00 UTC is New York's close, and nothing follows it.
+
+    Without a weekday rule the four windows tile all 24 hours, so there
+    would be no instant in the week with nothing open — and a Saturday
+    afternoon would report New York trading.
+    """
+    friday_open = datetime(2026, 8, 21, 20, 0, tzinfo=timezone.utc)
+    assert sessions.active_at(friday_open)
+    friday_closed = datetime(2026, 8, 21, 21, 30, tzinfo=timezone.utc)
+    assert sessions.active_at(friday_closed) == []
+
+
+def test_nothing_is_open_across_the_weekend():
+    for moment in (
+        datetime(2026, 8, 22, 3, 0, tzinfo=timezone.utc),   # Sat, Tokyo hours
+        datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc),  # Sat, London hours
+        datetime(2026, 8, 22, 18, 0, tzinfo=timezone.utc),  # Sat, NY hours
+        datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc),  # Sun
+        datetime(2026, 8, 23, 20, 0, tzinfo=timezone.utc),  # Sun, pre-open
+    ):
+        assert sessions.active_at(moment) == [], moment.isoformat()
+
+
+def test_the_week_reopens_with_sydney_on_sunday_evening_utc():
+    """Sydney's Monday morning is Sunday night in UTC, and that is the open."""
+    moment = datetime(2026, 8, 23, 22, 0, tzinfo=timezone.utc)
+    assert SessionName.SYDNEY in {s.name for s in sessions.active_at(moment)}
+
+
 # ------------------------------------------------------- session ranges
 
 def test_session_range_is_measured_from_bars_in_the_window():

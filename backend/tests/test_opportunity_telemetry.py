@@ -7,6 +7,7 @@ outcomes stay apart. These tests hold that apart.
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -21,6 +22,7 @@ from app.models import (
     UserRole,
 )
 from app.security import create_access_token
+from app.services import bot, telemetry
 
 
 def _log(user_id: int, **over) -> OpportunityLog:
@@ -227,3 +229,47 @@ async def test_older_rows_fall_outside_the_requested_window(env):
                                        headers=_h(env["tokens"]["alice"]))
     assert one_day.json()["summary"]["detected"] == 0
     assert ten_days.json()["summary"]["detected"] == 1
+
+
+# --------------------------------------------- the bot actually records
+
+
+def test_the_bot_cycle_records_before_the_risk_manager_rules():
+    """Telemetry is written where it can explain a quiet day.
+
+    `opportunity_logs` existed with nothing writing to it, so the log was
+    permanently empty and "no trades today" was unexplainable. These
+    assertions pin the ORDER: the opportunity is recorded as soon as the
+    engine has an opinion, before execution, so a setup the risk manager
+    later refuses is still on the record.
+    """
+    source = inspect.getsource(bot._cycle_for_user)
+
+    assert "telemetry.record_opportunity" in source
+    assert "telemetry.record_risk_decision" in source
+    assert "telemetry.record_execution" in source
+
+    recorded = source.index("telemetry.record_opportunity")
+    executed = source.index("demo_execution.execute_signal")
+    assert recorded < executed, "the opportunity must be on record first"
+
+
+def test_a_held_bot_still_records_why_nothing_was_opened():
+    """A pause that recorded nothing would look identical to a dead engine."""
+    source = inspect.getsource(bot._cycle_for_user)
+    after_gate = source.split("if not may_open:")[1].split("return")[0]
+    assert "record_execution" in after_gate
+
+
+def test_telemetry_failures_cannot_stop_a_trade():
+    """Every recorder swallows its own storage errors.
+
+    A reporting outage becoming a refused trade would be a far worse
+    failure than the outage.
+    """
+    source = inspect.getsource(telemetry)
+    for name in ("record_opportunity", "record_risk_decision",
+                 "record_execution", "record_outcome"):
+        body = source.split(f"async def {name}(")[1].split("\nasync def ")[0]
+        assert "except Exception" in body, name
+        assert "raise" not in body, name

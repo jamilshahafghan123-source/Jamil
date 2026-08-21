@@ -77,13 +77,48 @@ def test_the_shared_decision_modules_are_venue_agnostic():
             assert banned not in source, f"{module.__name__} branches on venue"
 
 
+#: Names that constitute the classifier itself. Exactly one module may
+#: define any of them.
+CLASSIFIER_NAMES = frozenset({
+    "SetupClass", "Grade", "Requirement", "OpportunityScore",
+    "FACTOR_WEIGHTS", "ABSOLUTE_FLOOR",
+    "classify_setup", "score_opportunity", "grade_for", "requirements_for",
+})
+
+
 def test_setup_classification_is_shared_not_duplicated():
-    """One SetupClass definition, used by whatever executes."""
+    """One classifier, used by whatever executes.
+
+    Checked by NAME rather than by file count. Counting files says a
+    second copy exists the moment anything opportunity-shaped is added
+    beside it — including a module that only feeds the classifier inputs,
+    which is the opposite of a duplicate. What must never happen is a
+    second definition of the classification itself, so that is what this
+    looks for: any module other than opportunity.py that declares one of
+    the classifier's own names has forked the brain.
+    """
     assert [c.value for c in opportunity.SetupClass] == [
         "A_PLUS", "STANDARD", "SCALP"
     ]
-    matches = sorted(p.name for p in SERVICES.glob("*opportunit*"))
-    assert matches == ["opportunity.py"]
+
+    for path in sorted(SERVICES.rglob("*.py")):
+        if path.name == "opportunity.py":
+            continue
+        tree = ast.parse(path.read_text())
+        declared: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                declared.add(node.name)
+            elif isinstance(node, ast.AnnAssign) and isinstance(
+                node.target, ast.Name
+            ):
+                declared.add(node.target.id)
+            elif isinstance(node, ast.Assign):
+                declared.update(
+                    t.id for t in node.targets if isinstance(t, ast.Name)
+                )
+        clash = declared & CLASSIFIER_NAMES
+        assert not clash, f"{path.name} redefines {sorted(clash)}"
 
 
 def test_demo_execution_still_cannot_reach_a_broker():
