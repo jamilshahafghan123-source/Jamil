@@ -273,3 +273,131 @@ def test_telemetry_failures_cannot_stop_a_trade():
         body = source.split(f"async def {name}(")[1].split("\nasync def ")[0]
         assert "except Exception" in body, name
         assert "raise" not in body, name
+
+# ------------------------------- a real cycle, end to end, with stubs
+
+
+@pytest.mark.asyncio
+async def test_a_bot_cycle_writes_telemetry_fires_an_alert_and_executes(
+    env, monkeypatch
+):
+    """One cycle, everything it is supposed to do, actually done.
+
+    The AST tests above pin the ORDER of the calls. This runs the cycle
+    and checks the rows: an opportunity recorded with the risk ruling and
+    the fill attached, an alert fired for the signal change, and a
+    DemoPosition linked back to the opportunity it came from. All three
+    had complete machinery and no caller at some point in this branch, so
+    all three are asserted by execution rather than by structure.
+    """
+    from sqlalchemy import select
+
+    from app.models import (
+        Alert, AlertKind, DemoAccount, DemoPosition, ExecutionVenue,
+        Signal, SignalAction, TradingMode,
+    )
+
+    Session = env["Session"]
+    user_id = env["ids"]["alice"]
+
+    async with Session() as db:
+        row = (await db.execute(select(RiskSettings).where(
+            RiskSettings.user_id == user_id))).scalar_one()
+        row.trading_mode = TradingMode.DEMO
+        row.bot_enabled = True
+        row.execution_venue = ExecutionVenue.JGOLD_DEMO
+        row.min_confidence = 50
+        row.min_rr = 1.5
+        row.max_open_positions = 2
+        row.max_trades_per_day = 10
+        row.max_lot_size = 1.0
+        row.max_spread_points = 100
+        row.max_risk_per_trade_pct = 1.0
+        row.max_daily_loss_pct = 5.0
+        db.add(DemoAccount(user_id=user_id, starting_balance=100000.0,
+                           balance=100000.0))
+        db.add(Alert(user_id=user_id, kind=AlertKind.AI_SIGNAL_CHANGE,
+                     symbol="XAUUSD", enabled=True, repeatable=True))
+        # A previous read for the new one to differ FROM. The first signal
+        # on a fresh account notifies nobody, deliberately: with nothing
+        # before it there is no change to report.
+        db.add(Signal(user_id=user_id, symbol="XAUUSD",
+                      action=SignalAction.NO_TRADE, confidence=20,
+                      reason="nothing yet"))
+        await db.commit()
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    class Bridge:
+        async def connected(self):
+            return True
+
+        async def tick(self, *_a, **_k):
+            return {"bid": 3000.0, "ask": 3000.2, "spread_points": 20,
+                    "time": now}
+
+        async def account(self):
+            return {"balance": 100000.0, "equity": 100000.0,
+                    "currency": "USD", "trade_mode": "demo"}
+
+        async def positions(self, *_a, **_k):
+            return []
+
+    payload = {
+        "market": {"price": 3000.0, "spread_points": 20, "volatility": 6.0,
+                   "momentum": "RISING", "regime": "TREND"},
+        "timeframes": [{"timeframe": "M15", "role": "SETUP", "trend": "UP",
+                        "atr14": 6.0}],
+        "setup": {
+            "confidence_components": {"structure": 20, "trend_alignment": 25,
+                                      "momentum": 15, "levels": 10,
+                                      "liquidity": 5},
+            "trigger_text": "break of the M15 high",
+            "trigger": 3000.2, "stop_loss": 2990.0,
+        },
+        "zones": {"fvg": [{"bias": "BULLISH"}], "order_blocks": []},
+        "signal": {"action": "BUY", "entry": 3000.2, "stop_loss": 2990.0,
+                   "take_profit": 3040.0, "risk_reward": 4.0,
+                   "confidence": 72, "reason": "test setup"},
+    }
+
+    async def fake_snapshot():
+        return {"bid": 3000.0, "ask": 3000.2, "spread_points": 20}
+
+    async def fake_analyze(_snapshot, _settings_row):
+        return payload, []
+
+    monkeypatch.setattr(bot, "mt5", Bridge())
+    monkeypatch.setattr(bot, "collect_market_data", fake_snapshot)
+    monkeypatch.setattr(bot, "analyze", fake_analyze)
+    bot._profit_state.streaks.clear()
+
+    async with Session() as db:
+        user = await db.get(User, user_id)
+        await bot._cycle_for_user(db, user)
+
+    async with Session() as db:
+        logs = (await db.execute(select(OpportunityLog).where(
+            OpportunityLog.user_id == user_id))).scalars().all()
+        assert len(logs) == 1, "the cycle must record what it saw"
+        record = logs[0]
+        assert record.direction == "BUY"
+        assert record.confidence == 72
+        assert record.setup_class in ("A_PLUS", "STANDARD", "SCALP")
+        assert 0 < record.score <= 100
+        assert record.session, "the session it was detected in"
+        # Three separate outcomes, all three filled by one cycle.
+        assert record.ai_decision in ("BUY", "NO_TRADE")
+        assert record.risk_decision == "APPROVED"
+        assert record.execution_result == "FILLED"
+
+        alert = (await db.execute(select(Alert).where(
+            Alert.user_id == user_id))).scalar_one()
+        assert alert.trigger_count == 1, "a new BUY is a change worth telling"
+        assert "NO_TRADE to BUY" in alert.last_message
+        assert alert.acknowledged is False
+
+        positions = (await db.execute(select(DemoPosition))).scalars().all()
+        assert len(positions) == 1
+        assert positions[0].opportunity_id == record.id, \
+            "the position points back at the opportunity it came from"
