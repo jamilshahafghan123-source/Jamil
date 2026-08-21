@@ -491,23 +491,11 @@ _safe_mode_logged: dict[int, tuple] = {}
 async def _current_safe_mode() -> safe_mode.SafeModeState:
     """Evaluate safe mode from live readings.
 
-    Any failure to read is itself a reason to stop: an unreadable tick means
-    we do not know the price, and not knowing is exactly the state safe mode
-    exists for.
+    Delegates to `safe_mode.from_bridge`, which is shared with the support
+    router — a second copy of this is how support ended up reporting
+    prices as unavailable whatever the bridge was doing.
     """
-    connected = False
-    last_tick_at: datetime | None = None
-    try:
-        connected = await mt5.connected()
-        if connected:
-            tick = await mt5.tick()
-            raw = tick.get("time") if isinstance(tick, dict) else None
-            if raw:
-                last_tick_at = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except Exception:  # noqa: BLE001 - unreadable state is untrustworthy state
-        connected = False
-        last_tick_at = None
-    return safe_mode.evaluate(bridge_connected=connected, last_tick_at=last_tick_at)
+    return await safe_mode.from_bridge(mt5)
 
 
 async def _cycle_for_user(db: AsyncSession, user: User) -> None:

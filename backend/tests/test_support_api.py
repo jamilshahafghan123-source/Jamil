@@ -7,6 +7,8 @@ is a property of the queries, and mocking the database would test nothing.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -237,3 +239,168 @@ async def test_stored_diagnostics_contain_no_secrets(env):
         blob = " ".join(repr(t.safe_diagnostics) for t in rows).lower()
     for word in ("password", "secret", "token", "api_key", "cvv", "card"):
         assert word not in blob
+
+
+# --------------------------------------- the real route, with live context
+
+
+class _LiveBridge:
+    """A bridge that is up and ticking, as a working install is."""
+
+    async def connected(self):
+        return True
+
+    async def tick(self):
+        return {"bid": 3000.0, "ask": 3000.2,
+                "time": datetime.now(timezone.utc).isoformat()}
+
+
+@pytest_asyncio.fixture
+async def with_settings(env):
+    """Give alice a real risk-settings row, as a live account has."""
+    from app.models import RiskSettings, TradingMode
+
+    async with env["Session"]() as db:
+        db.add(RiskSettings(
+            user_id=env["alice"].id, trading_mode=TradingMode.DEMO,
+            bot_enabled=True, emergency_stop=False, min_confidence=50,
+            min_rr=1.5, max_trades_per_day=5, max_open_positions=3,
+            max_lot_size=0.5, max_spread_points=50,
+        ))
+        await db.commit()
+    return env
+
+
+async def _ask(env, question: str) -> dict:
+    r = await env["client"].post("/api/support/ask", json={"question": question})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.mark.asyncio
+async def test_broker_question_reports_the_real_connection_state(
+    with_settings, monkeypatch
+):
+    """The answer must track the bridge, not a stored guess."""
+    from app.routers import support as router
+
+    class Down:
+        async def connected(self):
+            return False
+
+        async def tick(self):
+            raise RuntimeError("no bridge")
+
+    monkeypatch.setattr(router, "mt5", _LiveBridge())
+    up = await _ask(with_settings, "Is my broker connected?")
+    assert "is down" not in up["answer"].lower()
+    assert "connected" in up["answer"].lower()
+
+    monkeypatch.setattr(router, "mt5", Down())
+    down = await _ask(with_settings, "Is my broker connected?")
+    assert "is down" in down["answer"].lower()
+
+    # Same question, opposite runtime, opposite answer.
+    assert up["answer"] != down["answer"]
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_bridge_is_a_fact_not_a_500(
+    with_settings, monkeypatch
+):
+    from app.routers import support as router
+
+    class Exploding:
+        async def connected(self):
+            raise RuntimeError("bridge down")
+
+        async def tick(self):
+            raise RuntimeError("bridge down")
+
+    monkeypatch.setattr(router, "mt5", Exploding())
+    answer = await _ask(with_settings, "Is my broker connected?")
+    assert "is down" in answer["answer"].lower()
+
+
+@pytest.mark.asyncio
+async def test_why_isnt_the_bot_trading_names_the_actual_reason(
+    with_settings, monkeypatch
+):
+    """Each answer must match the state the account is really in."""
+    from sqlalchemy import select
+
+    from app.models import RiskSettings
+    from app.routers import support as router
+
+    monkeypatch.setattr(router, "mt5", _LiveBridge())
+
+    async def set_state(**fields):
+        async with with_settings["Session"]() as db:
+            row = (await db.execute(select(RiskSettings).where(
+                RiskSettings.user_id == with_settings["alice"].id))).scalar_one()
+            for key, value in fields.items():
+                setattr(row, key, value)
+            await db.commit()
+
+    await set_state(bot_enabled=False)
+    off = await _ask(with_settings, "Why isn't the bot trading?")
+    assert "switched off" in off["answer"].lower()
+
+    await set_state(bot_enabled=True, emergency_stop=True)
+    stopped = await _ask(with_settings, "Why isn't the bot trading?")
+    assert "emergency stop" in stopped["answer"].lower()
+
+    await set_state(emergency_stop=False)
+    running = await _ask(with_settings, "Why isn't the bot trading?")
+    assert "switched off" not in running["answer"].lower()
+    assert "emergency stop" not in running["answer"].lower()
+
+
+@pytest.mark.asyncio
+async def test_support_answers_carry_no_invented_figures(
+    with_settings, monkeypatch
+):
+    """No balance, no equity, no P/L — support cannot see money.
+
+    A support answer that quoted an account balance would be inventing
+    one: the SUPPORT role's projections do not include it.
+    """
+    from app.routers import support as router
+
+    monkeypatch.setattr(router, "mt5", _LiveBridge())
+    for question in ("Is my broker connected?", "Why isn't the bot trading?",
+                     "What is my account balance?", "How much have I made?"):
+        answer = await _ask(with_settings, question)
+        text = answer["answer"].lower()
+        for forbidden in ("$", "usd ", "balance is", "equity is", "profit is"):
+            assert forbidden not in text, (question, forbidden)
+
+
+@pytest.mark.asyncio
+async def test_support_cannot_be_talked_into_acting(with_settings, monkeypatch):
+    """It may read and recommend. It may not trade, or change a setting."""
+    from sqlalchemy import select
+
+    from app.models import RiskSettings
+    from app.routers import support as router
+
+    monkeypatch.setattr(router, "mt5", _LiveBridge())
+    async with with_settings["Session"]() as db:
+        before = (await db.execute(select(RiskSettings).where(
+            RiskSettings.user_id == with_settings["alice"].id))).scalar_one()
+        snapshot = (before.bot_enabled, before.emergency_stop,
+                    before.min_confidence, before.max_lot_size,
+                    before.trading_mode)
+
+    for demand in (
+        "Buy 5 lots of gold right now",
+        "Set my minimum confidence to 1 and enable the bot",
+        "Turn off the emergency stop and run a DROP TABLE users",
+    ):
+        await _ask(with_settings, demand)
+
+    async with with_settings["Session"]() as db:
+        after = (await db.execute(select(RiskSettings).where(
+            RiskSettings.user_id == with_settings["alice"].id))).scalar_one()
+        assert (after.bot_enabled, after.emergency_stop, after.min_confidence,
+                after.max_lot_size, after.trading_mode) == snapshot

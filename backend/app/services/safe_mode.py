@@ -181,3 +181,34 @@ def _as_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+async def from_bridge(client) -> SafeModeState:
+    """Evaluate safe mode from live readings off the bridge.
+
+    THE ONE PLACE THAT READS THE BRIDGE FOR THIS. It existed only inside
+    the bot loop, so the support router wrote its own version and got it
+    wrong — it passed `last_tick_at=None if not connected else None`,
+    which is None either way, so every support answer reported live
+    prices as unavailable whatever the bridge was doing. One caller
+    cannot drift from another if there is only one.
+
+    Any failure to read is itself a reason to stop: an unreadable tick
+    means we do not know the price, and not knowing is exactly the state
+    safe mode exists for.
+    """
+    connected = False
+    last_tick_at: datetime | None = None
+    try:
+        connected = await client.connected()
+        if connected:
+            tick = await client.tick()
+            raw = tick.get("time") if isinstance(tick, dict) else None
+            if raw:
+                last_tick_at = datetime.fromisoformat(
+                    str(raw).replace("Z", "+00:00")
+                )
+    except Exception:  # noqa: BLE001 - unreadable state is untrustworthy state
+        connected = False
+        last_tick_at = None
+    return evaluate(bridge_connected=connected, last_tick_at=last_tick_at)

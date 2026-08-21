@@ -151,9 +151,10 @@ async def ask(
         server_allows_real=False,
     )
 
-    safe = safe_mode_svc.evaluate(
-        bridge_connected=connected, last_tick_at=None if not connected else None
-    )
+    # Read the bridge properly rather than assuming. This used to pass
+    # `None if not connected else None` — None either way — so every
+    # answer reported live prices as unavailable whatever was true.
+    safe = await safe_mode_svc.from_bridge(mt5)
 
     result = support_svc.answer(
         body.question,
